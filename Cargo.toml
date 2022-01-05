@@ -1,0 +1,18 @@
+[package]
+name = "ignited"
+version = "0.0.0"
+description = "Rapid early-ramdisk system initialization, accompanying initramfs generator"
+authors = ["Hugo Cuenca <hugo.cuenca.arana@gmail.com>"]
+readme = "README.md"
+homepage = "https://github.com/hugo-cuenca/ignited/"
+repository = "https://github.com/hugo-cuenca/ignited/"
+license = "MITNFA"
+keywords = ["init", "initramfs", "initrd", "ignite", "booster"]
+exclude = [
+    ".idea/*",
+]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
