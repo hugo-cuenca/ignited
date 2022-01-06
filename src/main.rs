@@ -63,7 +63,7 @@ const PROGRAM_NAME: &'static str = "ignited";
 /// actually puts the executable in `/sbin/init`. Otherwise, you must maintain a
 /// patch changing `INIT_PATH` to the appropriate path (e.g. `/init`,
 /// `/bin/init`, or `/usr/bin/init`).
-const INIT_PATH: &'static CStr = cstr!("/sbin/serviced");
+const INIT_PATH: &'static CStr = cstr!("/sbin/init");
 
 /// Error message used in case `INIT_PATH` is not able to be executed by `execv`.
 /// This can be caused by not having init installed in the right path with the
