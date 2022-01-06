@@ -30,6 +30,9 @@
 //! if you contact me.
 //!
 //! # Why?
+//! ## Why not booster?
+//! ## Why not mkinitcpio?
+//! ## Why not dracut?
 //! # How?
 //! # initd?
 //! To be written.

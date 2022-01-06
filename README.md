@@ -32,6 +32,9 @@ this README. I am also able to give recommendations on proper integration in a d
 if you contact me.
 
 ## Why?
+### Why not booster?
+### Why not mkinitcpio?
+### Why not dracut?
 ## How?
 ## initd?
 To be written.
