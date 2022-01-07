@@ -167,7 +167,7 @@ fn init() -> Result<(), ExitError<String>> {
         kdebug!(kcon, "booted in bios/legacy mode");
     }
 
-    std::env::set_var("PATH", OsStr::new("/usr/bin:/sbin:/bin")); // Panics on error
+    std::env::set_var("PATH", OsStr::new("/usr/bin")); // Panics on error
     kernel_ver_check()?;
     kdebug!(
         kcon,
