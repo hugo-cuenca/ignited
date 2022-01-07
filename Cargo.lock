@@ -43,6 +43,7 @@ dependencies = [
  "cstr",
  "nix",
  "precisej-printable-errno",
+ "serde",
  "toml",
 ]
 
