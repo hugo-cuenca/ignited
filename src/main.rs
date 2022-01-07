@@ -48,9 +48,21 @@
 #![warn(missing_docs)]
 #![allow(rustdoc::private_intra_doc_links)]
 
+#[macro_use]
+mod early_logging;
+mod mount;
+
+use crate::{
+    early_logging::KConsole,
+    mount::{Mount, TmpfsOpts},
+};
 use cstr::cstr;
-use std::ffi::CStr;
-use precisej_printable_errno::{ExitError, PrintableErrno, PrintableResult};
+use nix::mount::MsFlags;
+use precisej_printable_errno::{ExitError, PrintableResult};
+use std::{
+    ffi::{CStr, OsStr},
+    path::Path,
+};
 
 /// The program is called `ignited`. The str referring to the program name is saved in
 /// this constant. Useful for PrintableResult.
@@ -63,15 +75,28 @@ const PROGRAM_NAME: &'static str = "ignited";
 /// actually puts the executable in `/sbin/init`. Otherwise, you must maintain a
 /// patch changing `INIT_PATH` to the appropriate path (e.g. `/init`,
 /// `/bin/init`, or `/usr/bin/init`).
+#[warn(dead_code)]
 const INIT_PATH: &'static CStr = cstr!("/sbin/init");
 
 /// Error message used in case `INIT_PATH` is not able to be executed by `execv`.
 /// This can be caused by not having init installed in the right path with the
 /// proper executable permissions.
+#[warn(dead_code)]
 const INIT_ERROR: &'static str = "unable to execute init";
 
-/// Check if inside initrd
-fn initial_sanity_check() -> Result<(), PrintableErrno<&'static str>> {
+/// Check if inside initrd. TODO
+fn initial_sanity_check() -> Result<KConsole, ExitError<String>> {
+    // TODO check if inside initrd
+    Mount::DevTmpfs.mount().bail(1)?;
+    let mut kcon = KConsole::new().bail(2)?;
+    kdebug!(kcon, "mounted /dev");
+    kdebug!(kcon, "hooked up to kmsg!");
+    Ok(kcon)
+}
+
+/// Check if booted kernel version matches initrd kernel version. TODO
+fn kernel_ver_check() -> Result<(), ExitError<String>> {
+    // TODO check and compare booted kernel to initrd kernel
     Ok(())
 }
 
@@ -87,9 +112,39 @@ fn main() {
 ///
 /// TODO write docs
 fn init() -> Result<(), ExitError<String>> {
-    initial_sanity_check().bail(1)?;
+    let mut kcon = initial_sanity_check()?;
 
-    // perform ignition
+    // Commence ignition
+    kinfo!(kcon, "performing ignition...");
+    Mount::Sysfs.mount().bail(3)?;
+    kdebug!(kcon, "mounted /sys");
+    Mount::Proc.mount().bail(3)?;
+    kdebug!(kcon, "mounted /proc");
+    Mount::Tmpfs(TmpfsOpts::new(
+        "run",
+        Path::new("/run"),
+        MsFlags::MS_NOSUID | MsFlags::MS_NODEV | MsFlags::MS_STRICTATIME,
+        Some("mode=755"),
+    ))
+    .mount()
+    .bail(3)?;
+    kdebug!(kcon, "mounted /tmp");
+
+    // If we are booted in EFI mode, we should mount efivarfs
+    if Path::new("/sys/firmware/efi").exists() {
+        kdebug!(kcon, "booted in efi mode");
+        Mount::Efivarfs.mount().bail(3)?;
+        kdebug!(kcon, "mounted /sys/firmware/efi/efivars");
+    } else {
+        kdebug!(kcon, "booted in bios/legacy mode");
+    }
+
+    std::env::set_var("PATH", OsStr::new("/usr/bin:/sbin:/bin")); // Panics on error
+    kernel_ver_check()?;
+    kdebug!(
+        kcon,
+        "passed kernel version match, can proceed to loading modules when ready"
+    );
 
     Ok(())
 }
