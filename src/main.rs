@@ -58,10 +58,11 @@ use crate::{
 };
 use cstr::cstr;
 use nix::mount::MsFlags;
-use precisej_printable_errno::{ExitError, PrintableResult};
+use precisej_printable_errno::{printable_error, ExitError, PrintableErrno, PrintableResult};
 use std::{
     ffi::{CStr, OsStr},
     path::Path,
+    process::id as getpid,
 };
 
 /// The program is called `ignited`. The str referring to the program name is saved in
@@ -85,10 +86,36 @@ const INIT_PATH: &'static CStr = cstr!("/sbin/init");
 const INIT_ERROR: &'static str = "unable to execute init";
 
 /// Check if inside initrd. TODO
-fn initial_sanity_check() -> Result<KConsole, ExitError<String>> {
-    // TODO check if inside initrd
-    Mount::DevTmpfs.mount().bail(1)?;
-    let mut kcon = KConsole::new().bail(2)?;
+fn initial_sanity_check() -> Result<(), PrintableErrno<String>> {
+    // We must be the initramfs' PID1
+    (getpid() != 1).then(|| ()).ok_or_else(|| {
+        printable_error(
+            PROGRAM_NAME,
+            "not running in an initrd environment, exiting...",
+        )
+    })?;
+
+    // Per https://systemd.io/INITRD_INTERFACE/, we should only run if /etc/initrd-release
+    // is present
+    Path::new("/etc/initrd-release")
+        .exists()
+        .then(|| ())
+        .ok_or_else(|| {
+            printable_error(
+                PROGRAM_NAME,
+                "not running in an initrd environment, exiting...",
+            )
+        })?;
+
+    Ok(())
+}
+
+/// Perform initial work. TODO
+fn initialize_kcon() -> Result<KConsole, PrintableErrno<String>> {
+    Mount::DevTmpfs.mount()?;
+
+    // /dev should be mounted at this point
+    let mut kcon = KConsole::new()?;
     kdebug!(kcon, "mounted /dev");
     kdebug!(kcon, "hooked up to kmsg!");
     Ok(kcon)
@@ -112,7 +139,8 @@ fn main() {
 ///
 /// TODO write docs
 fn init() -> Result<(), ExitError<String>> {
-    let mut kcon = initial_sanity_check()?;
+    initial_sanity_check().bail(1)?;
+    let mut kcon = initialize_kcon().bail(2)?;
 
     // Commence ignition
     kinfo!(kcon, "performing ignition...");

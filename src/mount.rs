@@ -90,11 +90,9 @@ impl Mount {
             Mount::DevPts => todo!(),
             Mount::Proc => None,
             Mount::Sysfs => None,
-            Mount::Tmpfs(TmpfsOpts { ref options, .. }) => {
-                match options {
-                    Some(options) => Some(options.as_str()),
-                    None => None,
-                }
+            Mount::Tmpfs(TmpfsOpts { ref options, .. }) => match options {
+                Some(options) => Some(options.as_str()),
+                None => None,
             },
             Mount::Efivarfs => None,
         }
