@@ -30,7 +30,6 @@ impl TmpfsOpts {
     }
 }
 
-#[warn(dead_code)]
 pub enum Mount {
     DevTmpfs,
     DevPts,

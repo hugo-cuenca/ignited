@@ -43,13 +43,15 @@
 //! and contains no other code than the standard "Hello, world!".
 #![crate_name = "ignited"]
 #![cfg_attr(test, deny(warnings))]
-#![deny(unused)]
+// #![deny(unused)] // TODO
 #![deny(unstable_features)]
 #![warn(missing_docs)]
 #![allow(rustdoc::private_intra_doc_links)]
 
 #[macro_use]
 mod early_logging;
+
+mod config;
 mod mount;
 
 use crate::{
@@ -76,13 +78,11 @@ const PROGRAM_NAME: &'static str = "ignited";
 /// actually puts the executable in `/sbin/init`. Otherwise, you must maintain a
 /// patch changing `INIT_PATH` to the appropriate path (e.g. `/init`,
 /// `/bin/init`, or `/usr/bin/init`).
-#[warn(dead_code)]
 const INIT_PATH: &'static CStr = cstr!("/sbin/init");
 
 /// Error message used in case `INIT_PATH` is not able to be executed by `execv`.
 /// This can be caused by not having init installed in the right path with the
 /// proper executable permissions.
-#[warn(dead_code)]
 const INIT_ERROR: &'static str = "unable to execute init";
 
 /// Check if inside initrd. TODO
