@@ -96,7 +96,7 @@ const INIT_CONFIG: &'static str = "/etc/ignited/engine.toml";
 /// Check if inside initrd. TODO
 fn initial_sanity_check() -> Result<(), PrintableErrno<String>> {
     // We must be the initramfs' PID1
-    (getpid() != 1).then(|| ()).ok_or_else(|| {
+    (getpid() == 1).then(|| ()).ok_or_else(|| {
         printable_error(
             PROGRAM_NAME,
             "not running in an initrd environment, exiting...",
