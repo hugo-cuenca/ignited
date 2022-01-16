@@ -53,11 +53,13 @@ mod early_logging;
 
 mod config;
 mod mount;
+mod util;
 
 use crate::{
-    config::RuntimeConfig,
+    config::{InitramfsMetadata, RuntimeConfig},
     early_logging::KConsole,
     mount::{Mount, TmpfsOpts},
+    util::get_booted_kernel_ver,
 };
 use cstr::cstr;
 use nix::mount::MsFlags;
@@ -128,9 +130,22 @@ fn initialize_kcon() -> Result<KConsole, PrintableErrno<String>> {
 }
 
 /// Check if booted kernel version matches initrd kernel version. TODO
-fn kernel_ver_check(config: &RuntimeConfig) -> Result<(), ExitError<String>> {
-    // TODO check and compare booted kernel to initrd kernel
-    Ok(())
+fn kernel_ver_check(config: InitramfsMetadata) -> Result<(), ExitError<String>> {
+    let cur_ver = &get_booted_kernel_ver()[..];
+    let conf_ver = config.kernel_ver();
+    (cur_ver == conf_ver)
+        .then(|| ())
+        .ok_or_else(|| {
+            printable_error(
+                PROGRAM_NAME,
+                format!(
+                    "Linux kernel version mismatch. This initramfs image was built for version {con} and it is incompatible with the currently running version {cur}. Please rebuild the ignited image for kernel {cur}.",
+                    con = conf_ver,
+                    cur = cur_ver,
+                ),
+            )
+        })
+        .bail(5)
 }
 
 /// The entry point of the program. This function is in charge of exiting with an error
@@ -178,7 +193,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
 
     let config = RuntimeConfig::try_from(Path::new(INIT_CONFIG)).bail(4)?;
 
-    kernel_ver_check(&config)?;
+    kernel_ver_check(config.metadata())?;
     kdebug!(
         kcon,
         "passed kernel version match, can proceed to loading modules when ready"
