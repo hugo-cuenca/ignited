@@ -25,41 +25,47 @@ pub fn _print_message_ln(kcon: &mut KConsole, level: u8, args: String) {
 #[macro_export]
 macro_rules! kdebug {
     ($kcon:tt, $($arg:tt)*) => ({
-        $crate::early_logging::_print_message_ln(&mut $kcon, 7, ::std::format!($($arg)*));
+        use ::std::borrow::BorrowMut;
+        $crate::early_logging::_print_message_ln($kcon.borrow_mut(), 7, ::std::format!($($arg)*));
     })
 }
 
 #[macro_export]
 macro_rules! kinfo {
     ($kcon:tt, $($arg:tt)*) => ({
-        $crate::early_logging::_print_message_ln(&mut $kcon, 6, ::std::format!($($arg)*));
+        use ::std::borrow::BorrowMut;
+        $crate::early_logging::_print_message_ln($kcon.borrow_mut(), 6, ::std::format!($($arg)*));
     })
 }
 
 #[macro_export]
 macro_rules! knotice {
     ($kcon:tt, $($arg:tt)*) => ({
-        $crate::early_logging::_print_message_ln(&mut $kcon, 5, ::std::format!($($arg)*));
+        use ::std::borrow::BorrowMut;
+        $crate::early_logging::_print_message_ln($kcon.borrow_mut(), 5, ::std::format!($($arg)*));
     })
 }
 
 #[macro_export]
 macro_rules! kwarning {
     ($kcon:tt, $($arg:tt)*) => ({
-        $crate::early_logging::_print_message_ln(&mut $kcon, 4, ::std::format!($($arg)*));
+        use ::std::borrow::BorrowMut;
+        $crate::early_logging::_print_message_ln($kcon.borrow_mut(), 4, ::std::format!($($arg)*));
     })
 }
 
 #[macro_export]
 macro_rules! kerr {
     ($kcon:tt, $($arg:tt)*) => ({
-        $crate::early_logging::_print_message_ln(&mut $kcon, 3, ::std::format!($($arg)*));
+        use ::std::borrow::BorrowMut;
+        $crate::early_logging::_print_message_ln($kcon.borrow_mut(), 3, ::std::format!($($arg)*));
     })
 }
 
 #[macro_export]
 macro_rules! kcrit {
     ($kcon:tt, $($arg:tt)*) => ({
-        $crate::early_logging::_print_message_ln(&mut $kcon, 2, ::std::format!($($arg)*));
+        use ::std::borrow::BorrowMut;
+        $crate::early_logging::_print_message_ln($kcon.borrow_mut(), 2, ::std::format!($($arg)*));
     })
 }

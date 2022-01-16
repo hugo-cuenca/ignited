@@ -55,12 +55,15 @@ mod config;
 mod mount;
 
 use crate::{
+    config::RuntimeConfig,
     early_logging::KConsole,
     mount::{Mount, TmpfsOpts},
 };
 use cstr::cstr;
 use nix::mount::MsFlags;
-use precisej_printable_errno::{printable_error, ExitError, PrintableErrno, PrintableResult};
+use precisej_printable_errno::{
+    printable_error, ExitError, ExitErrorResult, PrintableErrno, PrintableResult,
+};
 use std::{
     ffi::{CStr, OsStr},
     path::Path,
@@ -84,6 +87,9 @@ const INIT_PATH: &'static CStr = cstr!("/sbin/init");
 /// This can be caused by not having init installed in the right path with the
 /// proper executable permissions.
 const INIT_ERROR: &'static str = "unable to execute init";
+
+/// Path where `ignited`'s config file is located. TODO
+const INIT_CONFIG: &'static str = "/etc/ignited/engine.toml";
 
 /// Check if inside initrd. TODO
 fn initial_sanity_check() -> Result<(), PrintableErrno<String>> {
@@ -130,7 +136,11 @@ fn kernel_ver_check(config: &RuntimeConfig) -> Result<(), ExitError<String>> {
 /// The entry point of the program. This function is in charge of exiting with an error
 /// code when [init] returns an [ExitError].
 fn main() {
-    if let Err(e) = init() {
+    initial_sanity_check().bail(1).unwrap_or_eprint_exit();
+    let mut kcon = initialize_kcon().bail(2).unwrap_or_eprint_exit();
+
+    if let Err(e) = init(&mut kcon) {
+        kcrit!(kcon, "{}", &e);
         e.eprint_and_exit()
     }
 }
@@ -138,10 +148,7 @@ fn main() {
 /// Here is where it actually begins.
 ///
 /// TODO write docs
-fn init() -> Result<(), ExitError<String>> {
-    initial_sanity_check().bail(1)?;
-    let mut kcon = initialize_kcon().bail(2)?;
-
+fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     // Commence ignition
     kinfo!(kcon, "performing ignition...");
     Mount::Sysfs.mount().bail(3)?;
