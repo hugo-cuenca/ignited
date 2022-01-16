@@ -130,7 +130,7 @@ fn initialize_kcon() -> Result<KConsole, PrintableErrno<String>> {
 }
 
 /// Check if booted kernel version matches initrd kernel version. TODO
-fn kernel_ver_check(config: InitramfsMetadata) -> Result<(), ExitError<String>> {
+fn kernel_ver_check(config: InitramfsMetadata) -> Result<(), PrintableErrno<String>> {
     let cur_ver = &get_booted_kernel_ver()[..];
     let conf_ver = config.kernel_ver();
     (cur_ver == conf_ver)
@@ -145,7 +145,6 @@ fn kernel_ver_check(config: InitramfsMetadata) -> Result<(), ExitError<String>> 
                 ),
             )
         })
-        .bail(5)
 }
 
 /// The entry point of the program. This function is in charge of exiting with an error
@@ -193,7 +192,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
 
     let config = RuntimeConfig::try_from(Path::new(INIT_CONFIG)).bail(4)?;
 
-    kernel_ver_check(config.metadata())?;
+    kernel_ver_check(config.metadata()).bail(5)?;
     kdebug!(
         kcon,
         "passed kernel version match, can proceed to loading modules when ready"
