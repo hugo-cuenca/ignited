@@ -122,7 +122,7 @@ fn initialize_kcon() -> Result<KConsole, PrintableErrno<String>> {
 }
 
 /// Check if booted kernel version matches initrd kernel version. TODO
-fn kernel_ver_check() -> Result<(), ExitError<String>> {
+fn kernel_ver_check(config: &RuntimeConfig) -> Result<(), ExitError<String>> {
     // TODO check and compare booted kernel to initrd kernel
     Ok(())
 }
@@ -168,7 +168,10 @@ fn init() -> Result<(), ExitError<String>> {
     }
 
     std::env::set_var("PATH", OsStr::new("/usr/bin")); // Panics on error
-    kernel_ver_check()?;
+
+    let config = RuntimeConfig::try_from(Path::new(INIT_CONFIG)).bail(4)?;
+
+    kernel_ver_check(&config)?;
     kdebug!(
         kcon,
         "passed kernel version match, can proceed to loading modules when ready"

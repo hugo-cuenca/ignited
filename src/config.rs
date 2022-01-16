@@ -1,6 +1,8 @@
 ///! TODO
-use std::collections::BTreeMap;
+use crate::PROGRAM_NAME;
+use precisej_printable_errno::{printable_error, PrintableErrno};
 use serde::Deserialize;
+use std::{collections::BTreeMap, io::Read, path::Path};
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
@@ -124,5 +126,46 @@ impl RuntimeConfig {
 
     pub fn console(&self) -> Option<ConsoleConfig<'_>> {
         self.console.as_ref().map(|c| ConsoleConfig(c))
+    }
+}
+impl TryFrom<&str> for RuntimeConfig {
+    type Error = PrintableErrno<String>;
+
+    #[inline(always)]
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        toml::from_str(value).map_err(|de| {
+            printable_error(PROGRAM_NAME, format!("error while reading config: {}", de))
+        })
+    }
+}
+impl TryFrom<String> for RuntimeConfig {
+    type Error = PrintableErrno<String>;
+
+    #[inline(always)]
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(&value[..])
+    }
+}
+impl TryFrom<std::fs::File> for RuntimeConfig {
+    type Error = PrintableErrno<String>;
+
+    #[inline(always)]
+    fn try_from(mut value: std::fs::File) -> Result<Self, Self::Error> {
+        let mut out = String::with_capacity(1024);
+        value.read_to_string(&mut out).map_err(|io| {
+            printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
+        })?;
+        Self::try_from(out)
+    }
+}
+impl TryFrom<&std::path::Path> for RuntimeConfig {
+    type Error = PrintableErrno<String>;
+
+    #[inline(always)]
+    fn try_from(value: &std::path::Path) -> Result<Self, Self::Error> {
+        let out = std::fs::read_to_string(value).map_err(|io| {
+            printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
+        })?;
+        Self::try_from(out)
     }
 }
