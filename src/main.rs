@@ -61,7 +61,7 @@ use crate::{
     early_logging::KConsole,
     module::ModAliases,
     mount::{Mount, TmpfsOpts},
-    util::get_booted_kernel_ver,
+    util::{get_booted_kernel_ver, make_shutdown_pivot_dir},
 };
 use cstr::cstr;
 use nix::mount::MsFlags;
@@ -204,6 +204,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     );
 
     let aliases = ModAliases::try_from(Path::new(IGNITED_MODULE_ALIASES)).bail(6)?;
+    make_shutdown_pivot_dir().bail(7)?;
 
     Ok(())
 }
