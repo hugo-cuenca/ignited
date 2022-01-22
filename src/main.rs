@@ -52,12 +52,14 @@
 mod early_logging;
 
 mod config;
+mod module;
 mod mount;
 mod util;
 
 use crate::{
     config::{InitramfsMetadata, RuntimeConfig},
     early_logging::KConsole,
+    module::ModAliases,
     mount::{Mount, TmpfsOpts},
     util::get_booted_kernel_ver,
 };
@@ -92,6 +94,9 @@ const INIT_ERROR: &'static str = "unable to execute init";
 
 /// Path where `ignited`'s config file is located. TODO
 const INIT_CONFIG: &'static str = "/etc/ignited/engine.toml";
+
+/// Path where `ignited`'s module aliases file is located. TODO
+const IGNITED_MODULE_ALIASES: &'static str = "/usr/lib/modules/ignited.alias";
 
 /// Check if inside initrd. TODO
 fn initial_sanity_check() -> Result<(), PrintableErrno<String>> {
@@ -197,6 +202,8 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
         kcon,
         "passed kernel version match, can proceed to loading modules when ready"
     );
+
+    let aliases = ModAliases::try_from(Path::new(IGNITED_MODULE_ALIASES)).bail(5)?;
 
     Ok(())
 }
