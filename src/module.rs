@@ -2,10 +2,6 @@
 
 use crate::PROGRAM_NAME;
 use precisej_printable_errno::{printable_error, PrintableErrno};
-use std::{
-    fs::File,
-    io::{BufRead, BufReader},
-};
 
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone)]
 pub struct ModAlias {
@@ -28,7 +24,9 @@ impl Extend<ModAlias> for ModAliases {
 impl TryFrom<std::fs::File> for ModAliases {
     type Error = PrintableErrno<String>;
 
-    fn try_from(value: File) -> Result<Self, Self::Error> {
+    fn try_from(value: std::fs::File) -> Result<Self, Self::Error> {
+        use std::io::{BufRead, BufReader};
+
         let reader = BufReader::new(value);
         let lines = reader.lines();
         let mut result = Vec::new();

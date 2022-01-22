@@ -2,7 +2,7 @@
 use crate::PROGRAM_NAME;
 use precisej_printable_errno::{printable_error, PrintableErrno};
 use serde::Deserialize;
-use std::{collections::BTreeMap, io::Read, path::Path};
+use std::collections::BTreeMap;
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
@@ -151,6 +151,8 @@ impl TryFrom<std::fs::File> for RuntimeConfig {
 
     #[inline(always)]
     fn try_from(mut value: std::fs::File) -> Result<Self, Self::Error> {
+        use std::io::Read;
+
         let mut out = String::with_capacity(1024);
         value.read_to_string(&mut out).map_err(|io| {
             printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
