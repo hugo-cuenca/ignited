@@ -203,7 +203,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
         "passed kernel version match, can proceed to loading modules when ready"
     );
 
-    let aliases = ModAliases::try_from(Path::new(IGNITED_MODULE_ALIASES)).bail(5)?;
+    let aliases = ModAliases::try_from(Path::new(IGNITED_MODULE_ALIASES)).bail(6)?;
 
     Ok(())
 }
