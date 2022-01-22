@@ -93,7 +93,7 @@ const INIT_PATH: &'static CStr = cstr!("/sbin/init");
 const INIT_ERROR: &'static str = "unable to execute init";
 
 /// Path where `ignited`'s config file is located. TODO
-const INIT_CONFIG: &'static str = "/etc/ignited/engine.toml";
+const IGNITED_CONFIG: &'static str = "/etc/ignited/engine.toml";
 
 /// Path where `ignited`'s module aliases file is located. TODO
 const IGNITED_MODULE_ALIASES: &'static str = "/usr/lib/modules/ignited.alias";
@@ -195,7 +195,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
 
     std::env::set_var("PATH", OsStr::new("/usr/bin")); // Panics on error
 
-    let config = RuntimeConfig::try_from(Path::new(INIT_CONFIG)).bail(4)?;
+    let config = RuntimeConfig::try_from(Path::new(IGNITED_CONFIG)).bail(4)?;
 
     kernel_ver_check(config.metadata()).bail(5)?;
     kdebug!(
