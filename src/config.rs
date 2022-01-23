@@ -1,8 +1,14 @@
 ///! TODO
-use crate::PROGRAM_NAME;
+use crate::{KConsole, INIT_PATH, PROGRAM_NAME};
 use precisej_printable_errno::{printable_error, PrintableErrno};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    ffi::CString,
+    fs::{read_to_string, File},
+    io::{BufRead, BufReader, Read},
+    path::Path,
+};
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "kebab-case")]
@@ -146,13 +152,11 @@ impl TryFrom<String> for RuntimeConfig {
         Self::try_from(&value[..])
     }
 }
-impl TryFrom<std::fs::File> for RuntimeConfig {
+impl TryFrom<File> for RuntimeConfig {
     type Error = PrintableErrno<String>;
 
     #[inline(always)]
-    fn try_from(mut value: std::fs::File) -> Result<Self, Self::Error> {
-        use std::io::Read;
-
+    fn try_from(mut value: File) -> Result<Self, Self::Error> {
         let mut out = String::with_capacity(1024);
         value.read_to_string(&mut out).map_err(|io| {
             printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
@@ -164,10 +168,176 @@ impl TryFrom<&std::path::Path> for RuntimeConfig {
     type Error = PrintableErrno<String>;
 
     #[inline(always)]
-    fn try_from(value: &std::path::Path) -> Result<Self, Self::Error> {
-        let out = std::fs::read_to_string(value).map_err(|io| {
+    fn try_from(value: &Path) -> Result<Self, Self::Error> {
+        let out = read_to_string(value).map_err(|io| {
             printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
         })?;
         Self::try_from(out)
+    }
+}
+
+/// TODO Move to KConsole
+pub enum VerbosityLevel {
+    Debug,
+    Info,
+    Notice,
+    Warn,
+    Err,
+}
+impl VerbosityLevel {
+    fn from(level: &str) -> Option<VerbosityLevel> {
+        match level {
+            "debug" => Some(VerbosityLevel::Debug),
+            "info" => Some(VerbosityLevel::Info),
+            "notice" => Some(VerbosityLevel::Notice),
+            "warn" | "warning" => Some(VerbosityLevel::Warn),
+            "err" | "error" => Some(VerbosityLevel::Err),
+            _ => None,
+        }
+    }
+}
+impl Default for VerbosityLevel {
+    fn default() -> Self {
+        VerbosityLevel::Info
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CmdlineArgs {
+    verbosity_level: VerbosityLevel,
+    init: CString,
+    root_fstype: Option<String>,
+    module_params: BTreeMap<String, String>,
+}
+impl CmdlineArgs {
+    pub fn parse_current(kcon: &KConsole) -> Result<Self, PrintableErrno<String>> {
+        let cmdline_buf = BufReader::new(File::open(Path::new("/proc/cmdline")));
+        let cmdline_spl = cmdline_buf.split(b' ');
+        Self::parse_inner(kcon, cmdline_spl)
+    }
+
+    fn parse_inner<B: BufRead>(kcon: &KConsole, cmdline_spl: std::io::Split<B>) -> Result<Self, PrintableErrno<String>> {
+        macro_rules! try_or_cont {
+            ($expr:expr $(,)?) => {
+                match $expr {
+                    ::core::result::Result::Ok(val) => val,
+                    ::core::result::Result::Err(_) => {
+                        continue;
+                    }
+                }
+            };
+        }
+
+        let mut verbosity_level: Option<VerbosityLevel> = None;
+        let mut init: Option<CString> = None;
+        let mut root_fstype: Option<String> = None;
+        let mut module_params = BTreeMap::new();
+        for arg in cmdline_spl {
+            let arg = arg.map_err(|io| {
+                printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
+            })?;
+            let arg = try_or_cont!(std::str::from_utf8(&arg[..]));
+
+            let (arg_key, arg_value) = match arg.split_once('=') {
+                Some((ak, av)) => (ak, Some(av)),
+                None => (arg, None),
+            };
+
+            // TODO
+            match arg_key {
+                "ignited.log" => {
+                    if let Some(level) = arg_value.map(|v| VerbosityLevel::from(v)).flatten() {
+                        verbosity_level.get_or_insert(level);
+                    } else {
+                        kwarning!(kcon, "unknown ignited.log key {}", arg_value.unwrap_or("<EMPTY>"));
+                    }
+                },
+                "booster.log" => {
+                    // COMPAT ARG. TODO DOCUMENT DIFFERENCES
+                    if let Some(arg_value) = arg_value {
+                        for arg_value in arg_value.split(',').filter(|v| !v.is_empty()) {
+                            if let Some(level) = VerbosityLevel::from(arg_value) {
+                                verbosity_level.get_or_insert(level);
+                            } else if arg_value == "console" {
+                                // no-op
+                                kdebug!(kcon, "booster.log=console is ignored in ignited");
+                            } else {
+                                kwarning!(kcon, "unknown booster.log key {}", arg_value);
+                            }
+                        }
+                    } else {
+                        kwarning!(kcon, "unknown booster.log key <EMPTY>");
+                    }
+                }
+                "booster.debug" => {
+                    verbosity_level.get_or_insert(VerbosityLevel::Debug);
+                    kdebug!(
+                        kcon,
+                        "booster.debug is deprecated: use ignited.log=debug instead."
+                    );
+                },
+                "quiet" => {
+                    verbosity_level.get_or_insert(VerbosityLevel::Err);
+                },
+                "root" => {
+                    todo!("Parse root")
+                },
+                "resume" => {
+                    todo!("Parse resume")
+                },
+                "init" => {
+                    if let Some(arg_value) = arg_value {
+                        let new_init = CString::new(arg_value).map_err(|_| {
+                            printable_error(PROGRAM_NAME, format!("invalid init path {}: path contains null value", arg_value))
+                        })?;
+                        init.get_or_insert(new_init);
+                    } else {
+                        kwarning!(kcon, "init key is empty, ignoring");
+                    }
+                },
+                "rootfstype" => {
+                    if let Some(arg_value) = arg_value {
+                        root_fstype.get_or_insert(arg_value.to_string())
+                    } else {
+                        kwarning!(kcon, "rootfstype key is empty, ignoring");
+                    }
+                },
+                "rootflags" => {
+                    todo!("Parse rootflags")
+                },
+                "ro" => {
+                    todo!("Parse rootflags")
+                },
+                "rw" => {
+                    todo!("Parse rootflags")
+                },
+                "rd.luks.options" => {
+                    todo!("Parse luks options")
+                },
+                "rd.luks.name" => {
+                    todo!("Parse luks options")
+                },
+                "rd.luks.uuid" => {
+                    todo!("Parse luks options")
+                },
+                module_param => {
+                    if let Some(arg_value) = arg_value {
+                        if let Some((module, param)) = module_param.split_once('.') {
+                            module_params.insert(module.replace('-', "_"), format!("{}={}", param, arg_value))
+                        } else {
+                            kwarning!(kcon, "invalid key {}", module_param);
+                        }
+                    } else {
+                        kwarning!(kcon, "invalid key {}", module_param);
+                    }
+                }
+            }
+        }
+        Ok(CmdlineArgs {
+            verbosity_level: verbosity_level.unwrap_or_default(),
+            init: init.unwrap_or_else(|| INIT_PATH.into_c_string()),
+            root_fstype,
+            module_params,
+        })
     }
 }
