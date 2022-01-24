@@ -1,7 +1,11 @@
 //! TODO
 
 use crate::PROGRAM_NAME;
-use nix::{errno::Errno, sys::{stat::Mode, utsname::uname}, unistd::mkdir};
+use nix::{
+    errno::Errno,
+    sys::{stat::Mode, utsname::uname},
+    unistd::mkdir,
+};
 use precisej_printable_errno::{ErrnoResult, PrintableErrno};
 use std::path::Path;
 
