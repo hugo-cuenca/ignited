@@ -246,7 +246,6 @@ impl CmdlineArgs {
                 None => (arg, None),
             };
 
-            // TODO
             match arg_key {
                 "ignited.log" => {
                     if let Some(level) = arg_value.map(|v| VerbosityLevel::from(v)).flatten() {
