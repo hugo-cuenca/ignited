@@ -76,7 +76,7 @@ use std::{
 
 /// The program is called `ignited`. The str referring to the program name is saved in
 /// this constant. Useful for PrintableResult.
-const PROGRAM_NAME: &'static str = "ignited";
+const PROGRAM_NAME: &str = "ignited";
 
 /// Path where init is located. Used in the `execv` call to actually execute
 /// init.
@@ -85,18 +85,18 @@ const PROGRAM_NAME: &'static str = "ignited";
 /// actually puts the executable in `/sbin/init`. Otherwise, you must maintain a
 /// patch changing `INIT_PATH` to the appropriate path (e.g. `/init`,
 /// `/bin/init`, or `/usr/bin/init`).
-const INIT_PATH: &'static CStr = cstr!("/sbin/init");
+const INIT_PATH: &CStr = cstr!("/sbin/init");
 
 /// Error message used in case `INIT_PATH` is not able to be executed by `execv`.
 /// This can be caused by not having init installed in the right path with the
 /// proper executable permissions.
-const INIT_ERROR: &'static str = "unable to execute init";
+const INIT_ERROR: &str = "unable to execute init";
 
 /// Path where `ignited`'s config file is located. TODO
-const IGNITED_CONFIG: &'static str = "/etc/ignited/engine.toml";
+const IGNITED_CONFIG: &str = "/etc/ignited/engine.toml";
 
 /// Path where `ignited`'s module aliases file is located. TODO
-const IGNITED_MODULE_ALIASES: &'static str = "/usr/lib/modules/ignited.alias";
+const IGNITED_MODULE_ALIASES: &str = "/usr/lib/modules/ignited.alias";
 
 /// Check if inside initrd. TODO
 fn initial_sanity_check() -> Result<(), PrintableErrno<String>> {

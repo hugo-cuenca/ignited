@@ -177,6 +177,7 @@ impl TryFrom<&std::path::Path> for RuntimeConfig {
 }
 
 /// TODO Move to KConsole
+#[derive(Debug, Copy, Clone)]
 pub enum VerbosityLevel {
     Debug,
     Info,
@@ -210,14 +211,18 @@ pub struct CmdlineArgs {
     module_params: BTreeMap<String, String>,
 }
 impl CmdlineArgs {
-    pub fn parse_current(kcon: &KConsole) -> Result<Self, PrintableErrno<String>> {
-        let cmdline_buf = BufReader::new(File::open(Path::new("/proc/cmdline")));
+    pub fn parse_current(kcon: &mut KConsole) -> Result<Self, PrintableErrno<String>> {
+        let cmdline_buf = BufReader::new(
+            File::open(Path::new("/proc/cmdline")).map_err(|io| {
+                printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
+            })?
+        );
         let cmdline_spl = cmdline_buf.split(b' ');
         Self::parse_inner(kcon, cmdline_spl)
     }
 
     fn parse_inner<B: BufRead>(
-        kcon: &KConsole,
+        kcon: &mut KConsole,
         cmdline_spl: std::io::Split<B>,
     ) -> Result<Self, PrintableErrno<String>> {
         macro_rules! try_or_cont {
@@ -309,7 +314,7 @@ impl CmdlineArgs {
                 }
                 "rootfstype" => {
                     if let Some(arg_value) = arg_value {
-                        root_fstype.get_or_insert(arg_value.to_string())
+                        root_fstype.get_or_insert(arg_value.to_string());
                     } else {
                         kwarning!(kcon, "rootfstype key is empty, ignoring");
                     }
@@ -338,7 +343,7 @@ impl CmdlineArgs {
                             module_params.insert(
                                 module.replace('-', "_"),
                                 format!("{}={}", param, arg_value),
-                            )
+                            );
                         } else {
                             kwarning!(kcon, "invalid key {}", module_param);
                         }
@@ -350,7 +355,7 @@ impl CmdlineArgs {
         }
         Ok(CmdlineArgs {
             verbosity_level: verbosity_level.unwrap_or_default(),
-            init: init.unwrap_or_else(|| INIT_PATH.into_c_string()),
+            init: init.unwrap_or_else(|| INIT_PATH.into()),
             root_fstype,
             module_params,
         })
