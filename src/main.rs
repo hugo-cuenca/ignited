@@ -128,9 +128,7 @@ fn initialize_kcon() -> Result<KConsole, PrintableErrno<String>> {
     Mount::DevTmpfs.mount()?;
 
     // /dev should be mounted at this point
-    let mut kcon = KConsole::new()?;
-    kdebug!(kcon, "mounted /dev");
-    kdebug!(kcon, "hooked up to kmsg!");
+    let kcon = KConsole::new()?;
     Ok(kcon)
 }
 
@@ -169,11 +167,8 @@ fn main() {
 /// TODO write docs
 fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     // Commence ignition
-    kinfo!(kcon, "performing ignition...");
     Mount::Sysfs.mount().bail(3)?;
-    kdebug!(kcon, "mounted /sys");
     Mount::Proc.mount().bail(3)?;
-    kdebug!(kcon, "mounted /proc");
     Mount::Tmpfs(TmpfsOpts::new(
         "run",
         Path::new("/run"),
@@ -182,13 +177,11 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     ))
     .mount()
     .bail(3)?;
-    kdebug!(kcon, "mounted /tmp");
 
     // If we are booted in EFI mode, we should mount efivarfs
     if Path::new("/sys/firmware/efi").exists() {
         kdebug!(kcon, "booted in efi mode");
         Mount::Efivarfs.mount().bail(3)?;
-        kdebug!(kcon, "mounted /sys/firmware/efi/efivars");
     } else {
         kdebug!(kcon, "booted in bios/legacy mode");
     }
@@ -196,12 +189,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     std::env::set_var("PATH", OsStr::new("/usr/bin")); // Panics on error
 
     let config = RuntimeConfig::try_from(Path::new(IGNITED_CONFIG)).bail(4)?;
-
     kernel_ver_check(config.metadata()).bail(5)?;
-    kdebug!(
-        kcon,
-        "passed kernel version match, can proceed to loading modules when ready"
-    );
 
     let aliases = ModAliases::try_from(Path::new(IGNITED_MODULE_ALIASES)).bail(6)?;
     make_shutdown_pivot_dir().bail(7)?;
