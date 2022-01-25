@@ -179,11 +179,9 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     .bail(3)?;
 
     // If we are booted in EFI mode, we should mount efivarfs
-    if Path::new("/sys/firmware/efi").exists() {
-        kdebug!(kcon, "booted in efi mode");
+    let efi_mode = Path::new("/sys/firmware/efi").exists();
+    if efi_mode {
         Mount::Efivarfs.mount().bail(3)?;
-    } else {
-        kdebug!(kcon, "booted in bios/legacy mode");
     }
 
     std::env::set_var("PATH", OsStr::new("/usr/bin")); // Panics on error
@@ -195,6 +193,11 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     make_shutdown_pivot_dir().bail(7)?;
 
     let args = CmdlineArgs::parse_current(kcon).bail(8)?;
+    if efi_mode {
+        kdebug!(kcon, "booted in efi mode");
+    } else {
+        kdebug!(kcon, "booted in bios/legacy mode");
+    }
 
     Ok(())
 }
