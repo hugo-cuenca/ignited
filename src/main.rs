@@ -57,7 +57,7 @@ mod mount;
 mod util;
 
 use crate::{
-    config::{InitramfsMetadata, RuntimeConfig},
+    config::{CmdlineArgs, InitramfsMetadata, RuntimeConfig},
     early_logging::KConsole,
     module::ModAliases,
     mount::{Mount, TmpfsOpts},
@@ -193,6 +193,8 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
 
     let aliases = ModAliases::try_from(Path::new(IGNITED_MODULE_ALIASES)).bail(6)?;
     make_shutdown_pivot_dir().bail(7)?;
+
+    let args = CmdlineArgs::parse_current(kcon).bail(8)?;
 
     Ok(())
 }
