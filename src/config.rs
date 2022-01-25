@@ -131,7 +131,7 @@ impl RuntimeConfig {
     }
 
     pub fn console(&self) -> Option<ConsoleConfig<'_>> {
-        self.console.as_ref().map(|c| ConsoleConfig(c))
+        self.console.as_ref().map(ConsoleConfig)
     }
 }
 impl TryFrom<&str> for RuntimeConfig {
@@ -253,7 +253,7 @@ impl CmdlineArgs {
 
             match arg_key {
                 "ignited.log" => {
-                    if let Some(level) = arg_value.map(|v| VerbosityLevel::from(v)).flatten() {
+                    if let Some(level) = arg_value.map(VerbosityLevel::from).flatten() {
                         verbosity_level.get_or_insert(level);
                     } else {
                         kwarning!(
