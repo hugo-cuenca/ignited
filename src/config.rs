@@ -227,103 +227,29 @@ impl CmdlineArgs {
 
             match arg_key {
                 "ignited.log" => {
-                    if let Some(level) = arg_value.map(|s| VerbosityLevel::try_from(s).ok()).flatten() {
-                        verbosity_level.get_or_insert(level);
-                    } else {
-                        kmsg_buf.kwarn(format!(
-                            "unknown ignited.log key {}",
-                            arg_value.unwrap_or("<EMPTY>")
-                        ));
-                    }
+                    Self::parse_ignited_log(&mut kmsg_buf, &mut verbosity_level, arg_value, false)
                 }
                 "booster.log" => {
-                    // COMPAT ARG. TODO DOCUMENT DIFFERENCES
-                    if let Some(arg_value) = arg_value {
-                        for arg_value in arg_value.split(',').filter(|v| !v.is_empty()) {
-                            if let Ok(level) = VerbosityLevel::try_from(arg_value) {
-                                verbosity_level.get_or_insert(level);
-                            } else if arg_value == "console" {
-                                // no-op
-                                kmsg_buf
-                                    .kdebug("booster.log=console is ignored in ignited".to_string())
-                            } else {
-                                kmsg_buf.kwarn(format!("unknown booster.log key {}", arg_value));
-                            }
-                        }
-                    } else {
-                        kmsg_buf.kwarn("unknown booster.log key <EMPTY>".to_string());
-                    }
+                    Self::parse_ignited_log(&mut kmsg_buf, &mut verbosity_level, arg_value, true)
                 }
-                "booster.debug" => {
-                    verbosity_level.get_or_insert(VerbosityLevel::Debug);
-                    kmsg_buf.kdebug(
-                        "booster.debug is deprecated: use ignited.log=debug instead.".to_string(),
-                    );
-                }
-                "quiet" => {
-                    verbosity_level.get_or_insert(VerbosityLevel::Err);
-                }
-                "root" => {
-                    todo!("Parse root")
-                }
-                "resume" => {
-                    todo!("Parse resume")
-                }
-                "init" => {
-                    if let Some(arg_value) = arg_value {
-                        let new_init = CString::new(arg_value).map_err(|_| {
-                            printable_error(
-                                PROGRAM_NAME,
-                                format!(
-                                    "invalid init path {}: path contains null value",
-                                    arg_value
-                                ),
-                            )
-                        })?;
-                        init.get_or_insert(new_init);
-                    } else {
-                        kmsg_buf.kwarn("init key is empty, ignoring".to_string());
-                    }
-                }
-                "rootfstype" => {
-                    if let Some(arg_value) = arg_value {
-                        root_fstype.get_or_insert(arg_value.to_string());
-                    } else {
-                        kmsg_buf.kwarn("rootfstype key is empty, ignoring".to_string());
-                    }
-                }
-                "rootflags" => {
-                    todo!("Parse rootflags")
-                }
-                "ro" => {
-                    todo!("Parse rootflags")
-                }
-                "rw" => {
-                    todo!("Parse rootflags")
-                }
-                "rd.luks.options" => {
-                    todo!("Parse luks options")
-                }
-                "rd.luks.name" => {
-                    todo!("Parse luks options")
-                }
-                "rd.luks.uuid" => {
-                    todo!("Parse luks options")
-                }
-                module_param => {
-                    if let Some(arg_value) = arg_value {
-                        if let Some((module, param)) = module_param.split_once('.') {
-                            module_params.insert(
-                                module.replace('-', "_"),
-                                format!("{}={}", param, arg_value),
-                            );
-                        } else {
-                            kmsg_buf.kwarn(format!("invalid key {}", module_param));
-                        }
-                    } else {
-                        kmsg_buf.kwarn(format!("invalid key {}", module_param));
-                    }
-                }
+                "booster.debug" => Self::parse_booster_debug(&mut kmsg_buf, &mut verbosity_level),
+                "quiet" => Self::parse_quiet(&mut verbosity_level),
+                "root" => Self::parse_root(&mut kmsg_buf),
+                "resume" => Self::parse_resume(&mut kmsg_buf),
+                "init" => Self::parse_init(&mut kmsg_buf, &mut init, arg_value)?,
+                "rootfstype" => Self::parse_rootfstype(&mut kmsg_buf, &mut root_fstype, arg_value),
+                "rootflags" => Self::parse_rootflags(&mut kmsg_buf),
+                "ro" => Self::parse_rootmode(&mut kmsg_buf, false),
+                "rw" => Self::parse_rootmode(&mut kmsg_buf, true),
+                "rd.luks.options" => Self::parse_luksopts(&mut kmsg_buf),
+                "rd.luks.name" => Self::parse_luksname(&mut kmsg_buf),
+                "rd.luks.uuid" => Self::parse_luksuuid(&mut kmsg_buf),
+                module_param => Self::parse_module_param(
+                    &mut kmsg_buf,
+                    &mut module_params,
+                    module_param,
+                    arg_value,
+                ),
             }
         }
         kmsg_buf.flush_with_level(verbosity_level.unwrap_or_default());
@@ -332,5 +258,126 @@ impl CmdlineArgs {
             root_fstype,
             module_params,
         })
+    }
+
+    fn parse_booster_debug(kmsg_buf: &mut KmsgBuf, verbosity_level: &mut Option<VerbosityLevel>) {
+        verbosity_level.get_or_insert(VerbosityLevel::Debug);
+        kmsg_buf.kdebug("booster.debug is deprecated: use ignited.log=debug instead.".to_string());
+    }
+
+    /// TODO document difference between compat=false/true
+    fn parse_ignited_log(
+        kmsg_buf: &mut KmsgBuf,
+        verbosity_level: &mut Option<VerbosityLevel>,
+        arg_value: Option<&str>,
+        compat: bool,
+    ) {
+        let (key, iter_arg_opt) = if compat {
+            (
+                "booster.log",
+                arg_value.map(|s| {
+                    s.split(',')
+                        .filter(|v| !v.is_empty())
+                        .collect::<Vec<&str>>()
+                }),
+            )
+        } else {
+            ("ignited.log", arg_value.map(|s| vec![s]))
+        };
+
+        if let Some(iter_arg) = iter_arg_opt {
+            for arg_value in iter_arg {
+                if let Ok(level) = VerbosityLevel::try_from(arg_value) {
+                    verbosity_level.get_or_insert(level);
+                } else if arg_value == "console" {
+                    // no-op
+                    kmsg_buf.kdebug(format!("{}=console is ignored in ignited", key))
+                } else {
+                    kmsg_buf.kwarn(format!("unknown {} key {}", key, arg_value));
+                }
+            }
+        } else {
+            kmsg_buf.kwarn(format!("unknown {} key <EMPTY>", key));
+        }
+    }
+
+    fn parse_init(
+        kmsg_buf: &mut KmsgBuf,
+        init: &mut Option<CString>,
+        arg_value: Option<&str>,
+    ) -> Result<(), PrintableErrno<String>> {
+        if let Some(arg_value) = arg_value {
+            let new_init = CString::new(arg_value).map_err(|_| {
+                printable_error(
+                    PROGRAM_NAME,
+                    format!("invalid init path {}: path contains null value", arg_value),
+                )
+            })?;
+            init.get_or_insert(new_init);
+        } else {
+            kmsg_buf.kwarn("init key is empty, ignoring".to_string());
+        }
+        Ok(())
+    }
+
+    fn parse_module_param(
+        kmsg_buf: &mut KmsgBuf,
+        module_params: &mut BTreeMap<String, String>,
+        module_param: &str,
+        arg_value: Option<&str>,
+    ) {
+        if let Some(arg_value) = arg_value {
+            if let Some((module, param)) = module_param.split_once('.') {
+                module_params.insert(module.replace('-', "_"), format!("{}={}", param, arg_value));
+            } else {
+                kmsg_buf.kwarn(format!("invalid key {}", module_param));
+            }
+        } else {
+            kmsg_buf.kwarn(format!("invalid key {}", module_param));
+        }
+    }
+
+    fn parse_resume(_kmsg_buf: &mut KmsgBuf) {
+        todo!("Parse resume")
+    }
+
+    fn parse_root(_kmsg_buf: &mut KmsgBuf) {
+        todo!("Parse root")
+    }
+
+    fn parse_rootfstype(
+        kmsg_buf: &mut KmsgBuf,
+        root_fstype: &mut Option<String>,
+        arg_value: Option<&str>,
+    ) {
+        if let Some(arg_value) = arg_value {
+            root_fstype.get_or_insert(arg_value.to_string());
+        } else {
+            kmsg_buf.kwarn("rootfstype key is empty, ignoring".to_string());
+        }
+    }
+
+    fn parse_rootflags(_kmsg_buf: &mut KmsgBuf) {
+        todo!("Parse rootflags")
+    }
+
+    fn parse_rootmode(_kmsg_buf: &mut KmsgBuf, _rw: bool) {
+        todo!("Parse root mode")
+    }
+
+    fn parse_luksopts(_kmsg_buf: &mut KmsgBuf) {
+        todo!("Parse luks options")
+    }
+
+    fn parse_luksname(_kmsg_buf: &mut KmsgBuf) {
+        todo!("Parse luks options")
+    }
+
+    fn parse_luksuuid(_kmsg_buf: &mut KmsgBuf) {
+        todo!("Parse luks options")
+    }
+
+    fn parse_quiet(verbosity_level: &mut Option<VerbosityLevel>) {
+        verbosity_level.get_or_insert(VerbosityLevel::Err);
     }
 }
