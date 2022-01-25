@@ -1,24 +1,26 @@
 //! TODO
 
 use crate::PROGRAM_NAME;
-use nix::{
-    fcntl::{open, OFlag},
-    sys::stat::Mode,
-};
-use precisej_printable_errno::{ErrnoResult, PrintableErrno};
+use precisej_printable_errno::{printable_error, PrintableErrno};
 use std::{
     fs::File,
     io::{Result as IoResult, Write},
-    os::unix::prelude::FromRawFd,
+    os::unix::fs::OpenOptionsExt,
 };
 
 #[repr(transparent)]
 pub struct KmsgFmt(File);
 impl KmsgFmt {
-    pub fn new() -> Result<KmsgFmt, PrintableErrno<&'static str>> {
-        let kmsg_fd = open("/dev/kmsg", OFlag::O_WRONLY, Mode::S_IWUSR | Mode::S_IRUSR)
-            .printable(PROGRAM_NAME, "unable to open /dev/kmsg")?;
-        Ok(KmsgFmt(unsafe { File::from_raw_fd(kmsg_fd) }))
+    pub fn new() -> Result<KmsgFmt, PrintableErrno<String>> {
+        let file = File::options()
+            .read(false)
+            .write(true)
+            .mode(nix::libc::S_IWUSR | nix::libc::S_IRUSR)
+            .open("/dev/kmsg")
+            .map_err(|io| {
+                printable_error(PROGRAM_NAME, format!("unable to open /dev/kmsg: {}", io))
+            })?;
+        Ok(KmsgFmt(file))
     }
 
     pub(crate) fn write(&mut self, buf: &[u8]) -> IoResult<()> {

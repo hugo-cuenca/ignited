@@ -1,5 +1,8 @@
 ///! TODO
-use crate::{KConsole, INIT_PATH, PROGRAM_NAME};
+use crate::{
+    early_logging::{KConsole, VerbosityLevel, _print_message_ln},
+    INIT_PATH, PROGRAM_NAME,
+};
 use precisej_printable_errno::{printable_error, PrintableErrno};
 use serde::Deserialize;
 use std::{
@@ -176,47 +179,17 @@ impl TryFrom<&std::path::Path> for RuntimeConfig {
     }
 }
 
-/// TODO Move to KConsole
-#[derive(Debug, Copy, Clone)]
-pub enum VerbosityLevel {
-    Debug,
-    Info,
-    Notice,
-    Warn,
-    Err,
-}
-impl VerbosityLevel {
-    fn from(level: &str) -> Option<VerbosityLevel> {
-        match level {
-            "debug" => Some(VerbosityLevel::Debug),
-            "info" => Some(VerbosityLevel::Info),
-            "notice" => Some(VerbosityLevel::Notice),
-            "warn" | "warning" => Some(VerbosityLevel::Warn),
-            "err" | "error" => Some(VerbosityLevel::Err),
-            _ => None,
-        }
-    }
-}
-impl Default for VerbosityLevel {
-    fn default() -> Self {
-        VerbosityLevel::Info
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct CmdlineArgs {
-    verbosity_level: VerbosityLevel,
     init: CString,
     root_fstype: Option<String>,
     module_params: BTreeMap<String, String>,
 }
 impl CmdlineArgs {
     pub fn parse_current(kcon: &mut KConsole) -> Result<Self, PrintableErrno<String>> {
-        let cmdline_buf = BufReader::new(
-            File::open(Path::new("/proc/cmdline")).map_err(|io| {
-                printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
-            })?
-        );
+        let cmdline_buf = BufReader::new(File::open(Path::new("/proc/cmdline")).map_err(|io| {
+            printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
+        })?);
         let cmdline_spl = cmdline_buf.split(b' ');
         Self::parse_inner(kcon, cmdline_spl)
     }
@@ -235,7 +208,70 @@ impl CmdlineArgs {
                 }
             };
         }
+        #[inline]
+        fn vb_lvl_from_str_opt(level: &str) -> Option<VerbosityLevel> {
+            VerbosityLevel::try_from(level).ok()
+        }
+        struct KmsgBufEntry {
+            level: VerbosityLevel,
+            args: String,
+        }
+        struct KmsgBuf<'a> {
+            inner_con: &'a mut KConsole,
+            inner_buf: Vec<KmsgBufEntry>,
+            flushed: bool,
+        }
+        impl<'a> KmsgBuf<'a> {
+            #[inline]
+            fn new(kcon: &'a mut KConsole) -> Self {
+                Self {
+                    inner_con: kcon,
+                    inner_buf: Default::default(),
+                    flushed: false,
+                }
+            }
 
+            #[inline]
+            fn kdebug(&mut self, args: String) {
+                self._kany(VerbosityLevel::Debug, args)
+            }
+
+            #[inline]
+            fn kwarn(&mut self, args: String) {
+                self._kany(VerbosityLevel::Warn, args)
+            }
+
+            fn flush_with_level(&mut self, level: VerbosityLevel) {
+                let buf = &mut self.inner_buf;
+
+                self.inner_con.change_verbosity(level);
+                self.flushed = true;
+                for entry in buf.drain(..buf.len()) {
+                    _print_message_ln(self.inner_con, entry.level, entry.args)
+                }
+            }
+
+            fn _kany(&mut self, level: VerbosityLevel, args: String) {
+                if self.flushed {
+                    Self::_println(self.inner_con, level, args)
+                } else {
+                    self.inner_buf.push(KmsgBufEntry { level, args })
+                }
+            }
+
+            fn _println(kcon: &mut KConsole, level: VerbosityLevel, args: String) {
+                match level {
+                    VerbosityLevel::Debug => kdebug!(kcon, "{}", args),
+                    VerbosityLevel::Info => kinfo!(kcon, "{}", args),
+                    VerbosityLevel::Notice => knotice!(kcon, "{}", args),
+                    VerbosityLevel::Warn => kwarn!(kcon, "{}", args),
+                    VerbosityLevel::Err => kerr!(kcon, "{}", args),
+                    VerbosityLevel::Crit => kcrit!(kcon, "{}", args),
+                }
+            }
+        }
+
+        let mut kmsg_buf = KmsgBuf::new(kcon);
         let mut verbosity_level: Option<VerbosityLevel> = None;
         let mut init: Option<CString> = None;
         let mut root_fstype: Option<String> = None;
@@ -253,38 +289,37 @@ impl CmdlineArgs {
 
             match arg_key {
                 "ignited.log" => {
-                    if let Some(level) = arg_value.map(VerbosityLevel::from).flatten() {
+                    if let Some(level) = arg_value.map(vb_lvl_from_str_opt).flatten() {
                         verbosity_level.get_or_insert(level);
                     } else {
-                        kwarning!(
-                            kcon,
+                        kmsg_buf.kwarn(format!(
                             "unknown ignited.log key {}",
                             arg_value.unwrap_or("<EMPTY>")
-                        );
+                        ));
                     }
                 }
                 "booster.log" => {
                     // COMPAT ARG. TODO DOCUMENT DIFFERENCES
                     if let Some(arg_value) = arg_value {
                         for arg_value in arg_value.split(',').filter(|v| !v.is_empty()) {
-                            if let Some(level) = VerbosityLevel::from(arg_value) {
+                            if let Ok(level) = VerbosityLevel::try_from(arg_value) {
                                 verbosity_level.get_or_insert(level);
                             } else if arg_value == "console" {
                                 // no-op
-                                kdebug!(kcon, "booster.log=console is ignored in ignited");
+                                kmsg_buf
+                                    .kdebug("booster.log=console is ignored in ignited".to_string())
                             } else {
-                                kwarning!(kcon, "unknown booster.log key {}", arg_value);
+                                kmsg_buf.kwarn(format!("unknown booster.log key {}", arg_value));
                             }
                         }
                     } else {
-                        kwarning!(kcon, "unknown booster.log key <EMPTY>");
+                        kmsg_buf.kwarn("unknown booster.log key <EMPTY>".to_string());
                     }
                 }
                 "booster.debug" => {
                     verbosity_level.get_or_insert(VerbosityLevel::Debug);
-                    kdebug!(
-                        kcon,
-                        "booster.debug is deprecated: use ignited.log=debug instead."
+                    kmsg_buf.kdebug(
+                        "booster.debug is deprecated: use ignited.log=debug instead.".to_string(),
                     );
                 }
                 "quiet" => {
@@ -309,14 +344,14 @@ impl CmdlineArgs {
                         })?;
                         init.get_or_insert(new_init);
                     } else {
-                        kwarning!(kcon, "init key is empty, ignoring");
+                        kmsg_buf.kwarn("init key is empty, ignoring".to_string());
                     }
                 }
                 "rootfstype" => {
                     if let Some(arg_value) = arg_value {
                         root_fstype.get_or_insert(arg_value.to_string());
                     } else {
-                        kwarning!(kcon, "rootfstype key is empty, ignoring");
+                        kmsg_buf.kwarn("rootfstype key is empty, ignoring".to_string());
                     }
                 }
                 "rootflags" => {
@@ -345,16 +380,16 @@ impl CmdlineArgs {
                                 format!("{}={}", param, arg_value),
                             );
                         } else {
-                            kwarning!(kcon, "invalid key {}", module_param);
+                            kmsg_buf.kwarn(format!("invalid key {}", module_param));
                         }
                     } else {
-                        kwarning!(kcon, "invalid key {}", module_param);
+                        kmsg_buf.kwarn(format!("invalid key {}", module_param));
                     }
                 }
             }
         }
+        kmsg_buf.flush_with_level(verbosity_level.unwrap_or_default());
         Ok(CmdlineArgs {
-            verbosity_level: verbosity_level.unwrap_or_default(),
             init: init.unwrap_or_else(|| INIT_PATH.into()),
             root_fstype,
             module_params,
