@@ -1,6 +1,6 @@
 ///! TODO
 use crate::{
-    early_logging::{KConsole, VerbosityLevel, _print_message_ln},
+    early_logging::{buf::KmsgBuf, KConsole, VerbosityLevel},
     INIT_PATH, PROGRAM_NAME,
 };
 use precisej_printable_errno::{printable_error, PrintableErrno};
@@ -208,68 +208,6 @@ impl CmdlineArgs {
                 }
             };
         }
-        #[inline]
-        fn vb_lvl_from_str_opt(level: &str) -> Option<VerbosityLevel> {
-            VerbosityLevel::try_from(level).ok()
-        }
-        struct KmsgBufEntry {
-            level: VerbosityLevel,
-            args: String,
-        }
-        struct KmsgBuf<'a> {
-            inner_con: &'a mut KConsole,
-            inner_buf: Vec<KmsgBufEntry>,
-            flushed: bool,
-        }
-        impl<'a> KmsgBuf<'a> {
-            #[inline]
-            fn new(kcon: &'a mut KConsole) -> Self {
-                Self {
-                    inner_con: kcon,
-                    inner_buf: Default::default(),
-                    flushed: false,
-                }
-            }
-
-            #[inline]
-            fn kdebug(&mut self, args: String) {
-                self._kany(VerbosityLevel::Debug, args)
-            }
-
-            #[inline]
-            fn kwarn(&mut self, args: String) {
-                self._kany(VerbosityLevel::Warn, args)
-            }
-
-            fn flush_with_level(&mut self, level: VerbosityLevel) {
-                let buf = &mut self.inner_buf;
-
-                self.inner_con.change_verbosity(level);
-                self.flushed = true;
-                for entry in buf.drain(..buf.len()) {
-                    _print_message_ln(self.inner_con, entry.level, entry.args)
-                }
-            }
-
-            fn _kany(&mut self, level: VerbosityLevel, args: String) {
-                if self.flushed {
-                    Self::_println(self.inner_con, level, args)
-                } else {
-                    self.inner_buf.push(KmsgBufEntry { level, args })
-                }
-            }
-
-            fn _println(kcon: &mut KConsole, level: VerbosityLevel, args: String) {
-                match level {
-                    VerbosityLevel::Debug => kdebug!(kcon, "{}", args),
-                    VerbosityLevel::Info => kinfo!(kcon, "{}", args),
-                    VerbosityLevel::Notice => knotice!(kcon, "{}", args),
-                    VerbosityLevel::Warn => kwarn!(kcon, "{}", args),
-                    VerbosityLevel::Err => kerr!(kcon, "{}", args),
-                    VerbosityLevel::Crit => kcrit!(kcon, "{}", args),
-                }
-            }
-        }
 
         let mut kmsg_buf = KmsgBuf::new(kcon);
         let mut verbosity_level: Option<VerbosityLevel> = None;
@@ -289,7 +227,7 @@ impl CmdlineArgs {
 
             match arg_key {
                 "ignited.log" => {
-                    if let Some(level) = arg_value.map(vb_lvl_from_str_opt).flatten() {
+                    if let Some(level) = arg_value.map(|s| VerbosityLevel::try_from(s).ok()).flatten() {
                         verbosity_level.get_or_insert(level);
                     } else {
                         kmsg_buf.kwarn(format!(
