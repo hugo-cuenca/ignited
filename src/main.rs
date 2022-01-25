@@ -42,10 +42,10 @@
 //! This crate currently serves the purpose of reserving the name `ignited` in crates.io,
 //! and contains no other code than the standard "Hello, world!".
 #![crate_name = "ignited"]
-#![cfg_attr(test, deny(warnings))]
+// #![cfg_attr(test, deny(warnings))] // TODO
 // #![deny(unused)] // TODO
 #![deny(unstable_features)]
-#![warn(missing_docs)]
+// #![warn(missing_docs)] // TODO
 #![allow(rustdoc::private_intra_doc_links)]
 
 #[macro_use]
