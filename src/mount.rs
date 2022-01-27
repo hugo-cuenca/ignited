@@ -8,6 +8,7 @@ use nix::{
 use precisej_printable_errno::{printable_error, ErrnoResult, PrintableErrno};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct TmpfsOpts {
     source: String,
     target: PathBuf,
@@ -30,6 +31,230 @@ impl TmpfsOpts {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RootOpts {
+    source: String,
+    fstype: String,
+    flags: MsFlags,
+    options: Option<String>,
+}
+impl RootOpts {
+    pub fn builder() -> RootOptsBuilder {
+        Default::default()
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum RootOptsSourceBuilder {
+    Uuid(String),
+    Label(String),
+    PartUuid(String),
+    PartUuidPartnroff(String),
+    PartLabel(String),
+    RawDevice(String),
+}
+impl RootOptsSourceBuilder {
+    #[inline]
+    pub fn parse<R: AsRef<str>>(root: R) -> Option<Self> {
+        Self::_parse(root.as_ref())
+    }
+    fn _parse(root: &str) -> Option<Self> {
+        if let Some(uuid) = root
+            .strip_prefix("UUID=")
+            .or_else(|| root.strip_prefix("/dev/disk/by-uuid"))
+        {
+            Self::parse_uuid(uuid)
+        } else if let Some(label) = root
+            .strip_prefix("LABEL=")
+            .or_else(|| root.strip_prefix("/dev/disk/by-label"))
+        {
+            Some(Self::parse_label(label))
+        } else if let Some(partuuid_partnroff) = root.strip_prefix("PARTUUID=") {
+            Self::parse_partuuid_partnroff(partuuid_partnroff)
+        } else if let Some(partuuid) = root.strip_prefix("/dev/disk/by-partuuid") {
+            Self::parse_partuuid(partuuid)
+        } else if let Some(partlabel) = root
+            .strip_prefix("PARTLABEL=")
+            .or_else(|| root.strip_prefix("/dev/disk/by-partlabel"))
+        {
+            Some(Self::parse_partlabel(partlabel))
+        } else if root.starts_with("/dev/") {
+            let raw_device = root;
+            Some(Self::parse_raw_device(raw_device))
+        } else {
+            None
+        }
+    }
+
+    fn parse_label(label: &str) -> Self {
+        Self::Label(label.to_string())
+    }
+
+    fn parse_partlabel(partlabel: &str) -> Self {
+        Self::PartLabel(partlabel.to_string())
+    }
+
+    fn parse_partuuid(partuuid: &str) -> Option<Self> {
+        todo!("Parse partuuid")
+    }
+
+    fn parse_partuuid_partnroff(partuuid_partnroff: &str) -> Option<Self> {
+        if let Some((partuuid, partnroff)) = partuuid_partnroff.split_once("/PARTNROFF=") {
+            todo!("Parse partuuid/partnroff")
+        } else {
+            let partuuid = partuuid_partnroff;
+            Self::parse_partuuid(partuuid)
+        }
+    }
+
+    fn parse_raw_device(raw_device: &str) -> Self {
+        Self::RawDevice(raw_device.to_string())
+    }
+
+    fn parse_uuid(uuid: &str) -> Option<Self> {
+        todo!("Parse uuid")
+    }
+
+    pub fn build(self) -> String {
+        todo!("convert to device path")
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct RootOptsBuilder {
+    source: Option<RootOptsSourceBuilder>,
+    fstype: Option<String>,
+    rw: bool,
+    flags: MsFlags,
+    options: Option<String>,
+}
+impl RootOptsBuilder {
+    pub fn source(&mut self, source: RootOptsSourceBuilder) -> &mut Self {
+        self.source.get_or_insert(source);
+        self
+    }
+
+    pub fn get_source(&self) -> Option<&RootOptsSourceBuilder> {
+        self.source.as_ref()
+    }
+
+    #[inline]
+    pub fn fstype<F: Into<String>>(&mut self, fstype: F) -> &mut Self {
+        self._fstype(fstype.into());
+        self
+    }
+    fn _fstype(&mut self, fstype: String) {
+        self.fstype.get_or_insert(fstype);
+    }
+
+    pub fn get_fstype(&self) -> Option<&str> {
+        self.fstype.as_deref()
+    }
+
+    pub fn ro(&mut self) -> &mut Self {
+        self.rw = false;
+        self
+    }
+
+    pub fn rw(&mut self) -> &mut Self {
+        self.rw = true;
+        self
+    }
+
+    #[inline]
+    pub fn add_opts<O: AsRef<str>>(&mut self, o: O) -> &mut Self {
+        self._add_opts(o.as_ref());
+        self
+    }
+    fn _add_opts(&mut self, opts: &str) {
+        for opt in opts.split(',') {
+            match opt {
+                "dirsync" => self.flags.insert(MsFlags::MS_DIRSYNC),
+                "nolazytime" => self.flags.remove(MsFlags::MS_LAZYTIME),
+                "lazytime" => self.flags.insert(MsFlags::MS_LAZYTIME),
+                "noatime" => self.flags.insert(MsFlags::MS_NOATIME),
+                "atime" => self.flags.remove(MsFlags::MS_NOATIME),
+                "nodev" => self.flags.insert(MsFlags::MS_NODEV),
+                "dev" => self.flags.remove(MsFlags::MS_NODEV),
+                "nodiratime" => self.flags.insert(MsFlags::MS_NODIRATIME),
+                "diratime" => self.flags.remove(MsFlags::MS_NODIRATIME),
+                "noexec" => self.flags.insert(MsFlags::MS_NOEXEC),
+                "exec" => self.flags.remove(MsFlags::MS_NOEXEC),
+                "nosuid" => self.flags.insert(MsFlags::MS_NOSUID),
+                "suid" => self.flags.remove(MsFlags::MS_NOSUID),
+                "norelatime" => self.flags.remove(MsFlags::MS_RELATIME),
+                "relatime" => self.flags.insert(MsFlags::MS_RELATIME),
+                "silent" => self.flags.insert(MsFlags::MS_SILENT),
+                "nostrictatime" => self.flags.remove(MsFlags::MS_STRICTATIME),
+                "strictatime" => self.flags.insert(MsFlags::MS_STRICTATIME),
+                "async" => self.flags.remove(MsFlags::MS_SYNCHRONOUS),
+                "sync" => self.flags.insert(MsFlags::MS_SYNCHRONOUS),
+                "nosymfollow" => {
+                    // FIXME: suggest adding MsFlags::MS_NOSYMFOLLOW to nix
+                    // TODO: document lack of options
+                }
+                option => {
+                    match self.options {
+                        Some(ref mut options) => {
+                            options.push(',');
+                            options.push_str(option);
+                        }
+                        None => self.options = Some(option.to_string()),
+                    };
+                }
+            }
+        }
+    }
+
+    pub fn try_build(self) -> Result<RootOpts, Self> {
+        let (source, fstype) = match (&self.source, &self.fstype) {
+            (Some(source), Some(fstype)) => (source.clone().build(), fstype.clone()),
+            _ => return Err(self),
+        };
+        let options = self.options;
+
+        let mut flags = self.flags;
+        flags.set(MsFlags::MS_RDONLY, !self.rw);
+
+        Ok(RootOpts {
+            source,
+            fstype,
+            flags,
+            options,
+        })
+    }
+
+    // TODO document panic on unwrap/incomplete
+    pub fn build(self) -> RootOpts {
+        let source = self.source.unwrap().build();
+        let fstype = self.fstype.unwrap();
+
+        let options = self.options;
+
+        let mut flags = self.flags;
+        flags.set(MsFlags::MS_RDONLY, !self.rw);
+
+        RootOpts {
+            source,
+            fstype,
+            flags,
+            options,
+        }
+    }
+}
+impl Default for RootOptsBuilder {
+    fn default() -> Self {
+        RootOptsBuilder {
+            source: None,
+            fstype: None,
+            rw: false,
+            flags: MsFlags::empty(),
+            options: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Mount {
     DevTmpfs,
     DevPts,
@@ -37,6 +262,7 @@ pub enum Mount {
     Sysfs,
     Tmpfs(TmpfsOpts),
     Efivarfs,
+    Root(RootOpts),
 }
 impl Mount {
     fn source(&self) -> &'_ str {
@@ -47,6 +273,7 @@ impl Mount {
             Mount::Sysfs => "sys",
             Mount::Tmpfs(TmpfsOpts { source, .. }) => source.as_str(),
             Mount::Efivarfs => "efivarfs",
+            Mount::Root(RootOpts { source, .. }) => source.as_str(),
         }
     }
 
@@ -58,10 +285,11 @@ impl Mount {
             Mount::Sysfs => Path::new("/sys"),
             Mount::Tmpfs(TmpfsOpts { target, .. }) => target.as_path(),
             Mount::Efivarfs => Path::new("/sys/firmware/efi/efivars"),
+            Mount::Root(_) => todo!(),
         }
     }
 
-    fn fstype(&self) -> &'static str {
+    fn fstype(&self) -> &'_ str {
         match self {
             Mount::DevTmpfs => "devtmpfs",
             Mount::DevPts => "devpts",
@@ -69,6 +297,7 @@ impl Mount {
             Mount::Sysfs => "sysfs",
             Mount::Tmpfs(_) => "tmpfs",
             Mount::Efivarfs => "efivarfs",
+            Mount::Root(RootOpts { fstype, .. }) => fstype.as_str(),
         }
     }
 
@@ -80,6 +309,7 @@ impl Mount {
             Mount::Sysfs => MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV,
             Mount::Tmpfs(TmpfsOpts { flags, .. }) => *flags,
             Mount::Efivarfs => MsFlags::MS_NOSUID | MsFlags::MS_NOEXEC | MsFlags::MS_NODEV,
+            Mount::Root(RootOpts { flags, .. }) => *flags,
         }
     }
 
@@ -89,11 +319,9 @@ impl Mount {
             Mount::DevPts => todo!(),
             Mount::Proc => None,
             Mount::Sysfs => None,
-            Mount::Tmpfs(TmpfsOpts { ref options, .. }) => match options {
-                Some(options) => Some(options.as_str()),
-                None => None,
-            },
+            Mount::Tmpfs(TmpfsOpts { ref options, .. }) => options.as_deref(),
             Mount::Efivarfs => None,
+            Mount::Root(RootOpts { ref options, .. }) => options.as_deref(),
         }
     }
 

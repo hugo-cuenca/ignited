@@ -2,6 +2,7 @@
 use crate::{
     early_logging::{buf::KmsgBuf, KConsole, VerbosityLevel},
     module::ModParams,
+    mount::{RootOpts, RootOptsBuilder, RootOptsSourceBuilder},
     INIT_PATH, PROGRAM_NAME,
 };
 use precisej_printable_errno::{printable_error, PrintableErrno};
@@ -183,7 +184,7 @@ impl TryFrom<&std::path::Path> for RuntimeConfig {
 #[derive(Debug, Clone)]
 pub struct CmdlineArgs {
     init: CString,
-    root_fstype: Option<String>,
+    root_opts: RootOptsBuilder,
     mod_params: ModParams,
 }
 impl CmdlineArgs {
@@ -213,7 +214,7 @@ impl CmdlineArgs {
         let mut kmsg_buf = KmsgBuf::new(kcon);
         let mut verbosity_level: Option<VerbosityLevel> = None;
         let mut init: Option<CString> = None;
-        let mut root_fstype: Option<String> = None;
+        let mut root_opts = RootOpts::builder();
         let mut mod_params = ModParams::default();
         for arg in cmdline_spl {
             let arg = arg.map_err(|io| {
@@ -235,13 +236,13 @@ impl CmdlineArgs {
                 }
                 "booster.debug" => Self::parse_booster_debug(&mut kmsg_buf, &mut verbosity_level),
                 "quiet" => Self::parse_quiet(&mut verbosity_level),
-                "root" => Self::parse_root(&mut kmsg_buf),
+                "root" => Self::parse_root(&mut kmsg_buf, &mut root_opts, arg_value)?,
                 "resume" => Self::parse_resume(&mut kmsg_buf),
                 "init" => Self::parse_init(&mut kmsg_buf, &mut init, arg_value)?,
-                "rootfstype" => Self::parse_rootfstype(&mut kmsg_buf, &mut root_fstype, arg_value),
-                "rootflags" => Self::parse_rootflags(&mut kmsg_buf),
-                "ro" => Self::parse_rootmode(&mut kmsg_buf, false),
-                "rw" => Self::parse_rootmode(&mut kmsg_buf, true),
+                "rootfstype" => Self::parse_rootfstype(&mut kmsg_buf, &mut root_opts, arg_value),
+                "rootflags" => Self::parse_rootflags(&mut kmsg_buf, &mut root_opts, arg_value),
+                "ro" => Self::parse_rootmode(&mut root_opts, false),
+                "rw" => Self::parse_rootmode(&mut root_opts, true),
                 "rd.luks.options" => Self::parse_luksopts(&mut kmsg_buf),
                 "rd.luks.name" => Self::parse_luksname(&mut kmsg_buf),
                 "rd.luks.uuid" => Self::parse_luksuuid(&mut kmsg_buf),
@@ -253,7 +254,7 @@ impl CmdlineArgs {
         kmsg_buf.flush_with_level(verbosity_level.unwrap_or_default());
         Ok(CmdlineArgs {
             init: init.unwrap_or_else(|| INIT_PATH.into()),
-            root_fstype,
+            root_opts,
             mod_params,
         })
     }
@@ -339,28 +340,52 @@ impl CmdlineArgs {
         todo!("Parse resume")
     }
 
-    fn parse_root(_kmsg_buf: &mut KmsgBuf) {
-        todo!("Parse root")
+    fn parse_root(
+        kmsg_buf: &mut KmsgBuf,
+        root_opts: &mut RootOptsBuilder,
+        arg_value: Option<&str>,
+    ) -> Result<(), PrintableErrno<String>> {
+        if let Some(arg_value) = arg_value {
+            root_opts.source(
+                RootOptsSourceBuilder::parse(arg_value)
+                    .ok_or_else(|| printable_error(PROGRAM_NAME, "unable to parse root key"))?,
+            );
+        } else {
+            kmsg_buf.kwarn("root key is empty, ignoring".to_string());
+        }
+        Ok(())
     }
 
     fn parse_rootfstype(
         kmsg_buf: &mut KmsgBuf,
-        root_fstype: &mut Option<String>,
+        root_opts: &mut RootOptsBuilder,
         arg_value: Option<&str>,
     ) {
         if let Some(arg_value) = arg_value {
-            root_fstype.get_or_insert(arg_value.to_string());
+            root_opts.fstype(arg_value);
         } else {
             kmsg_buf.kwarn("rootfstype key is empty, ignoring".to_string());
         }
     }
 
-    fn parse_rootflags(_kmsg_buf: &mut KmsgBuf) {
-        todo!("Parse rootflags")
+    fn parse_rootflags(
+        kmsg_buf: &mut KmsgBuf,
+        root_opts: &mut RootOptsBuilder,
+        arg_value: Option<&str>,
+    ) {
+        if let Some(arg_value) = arg_value {
+            root_opts.add_opts(arg_value);
+        } else {
+            kmsg_buf.kwarn("rootflags key is empty, ignoring".to_string());
+        }
     }
 
-    fn parse_rootmode(_kmsg_buf: &mut KmsgBuf, _rw: bool) {
-        todo!("Parse root mode")
+    fn parse_rootmode(root_opts: &mut RootOptsBuilder, rw: bool) {
+        if rw {
+            root_opts.rw();
+        } else {
+            root_opts.ro();
+        }
     }
 
     fn parse_luksopts(_kmsg_buf: &mut KmsgBuf) {
