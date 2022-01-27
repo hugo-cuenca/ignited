@@ -45,7 +45,7 @@ impl RootOpts {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum RootOptsSourceBuilder {
+pub enum PartitionSourceBuilder {
     Uuid(String),
     Label(String),
     PartUuid(String),
@@ -53,7 +53,7 @@ pub enum RootOptsSourceBuilder {
     PartLabel(String),
     RawDevice(String),
 }
-impl RootOptsSourceBuilder {
+impl PartitionSourceBuilder {
     #[inline]
     pub fn parse<R: AsRef<str>>(root: R) -> Option<Self> {
         Self::_parse(root.as_ref())
@@ -122,19 +122,19 @@ impl RootOptsSourceBuilder {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RootOptsBuilder {
-    source: Option<RootOptsSourceBuilder>,
+    source: Option<PartitionSourceBuilder>,
     fstype: Option<String>,
     rw: bool,
     flags: MsFlags,
     options: Option<String>,
 }
 impl RootOptsBuilder {
-    pub fn source(&mut self, source: RootOptsSourceBuilder) -> &mut Self {
+    pub fn source(&mut self, source: PartitionSourceBuilder) -> &mut Self {
         self.source.get_or_insert(source);
         self
     }
 
-    pub fn get_source(&self) -> Option<&RootOptsSourceBuilder> {
+    pub fn get_source(&self) -> Option<&PartitionSourceBuilder> {
         self.source.as_ref()
     }
 

@@ -2,7 +2,7 @@
 use crate::{
     early_logging::{buf::KmsgBuf, KConsole, VerbosityLevel},
     module::ModParams,
-    mount::{RootOpts, RootOptsBuilder, RootOptsSourceBuilder},
+    mount::{RootOpts, RootOptsBuilder, PartitionSourceBuilder},
     INIT_PATH, PROGRAM_NAME,
 };
 use precisej_printable_errno::{printable_error, PrintableErrno};
@@ -347,7 +347,7 @@ impl CmdlineArgs {
     ) -> Result<(), PrintableErrno<String>> {
         if let Some(arg_value) = arg_value {
             root_opts.source(
-                RootOptsSourceBuilder::parse(arg_value)
+                PartitionSourceBuilder::parse(arg_value)
                     .ok_or_else(|| printable_error(PROGRAM_NAME, "unable to parse root key"))?,
             );
         } else {
