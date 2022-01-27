@@ -1,6 +1,7 @@
 ///! TODO
 use crate::{
     early_logging::{buf::KmsgBuf, KConsole, VerbosityLevel},
+    module::ModParams,
     INIT_PATH, PROGRAM_NAME,
 };
 use precisej_printable_errno::{printable_error, PrintableErrno};
@@ -183,7 +184,7 @@ impl TryFrom<&std::path::Path> for RuntimeConfig {
 pub struct CmdlineArgs {
     init: CString,
     root_fstype: Option<String>,
-    module_params: BTreeMap<String, String>,
+    mod_params: ModParams,
 }
 impl CmdlineArgs {
     pub fn parse_current(kcon: &mut KConsole) -> Result<Self, PrintableErrno<String>> {
@@ -213,7 +214,7 @@ impl CmdlineArgs {
         let mut verbosity_level: Option<VerbosityLevel> = None;
         let mut init: Option<CString> = None;
         let mut root_fstype: Option<String> = None;
-        let mut module_params = BTreeMap::new();
+        let mut mod_params = ModParams::default();
         for arg in cmdline_spl {
             let arg = arg.map_err(|io| {
                 printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
@@ -244,19 +245,16 @@ impl CmdlineArgs {
                 "rd.luks.options" => Self::parse_luksopts(&mut kmsg_buf),
                 "rd.luks.name" => Self::parse_luksname(&mut kmsg_buf),
                 "rd.luks.uuid" => Self::parse_luksuuid(&mut kmsg_buf),
-                module_param => Self::parse_module_param(
-                    &mut kmsg_buf,
-                    &mut module_params,
-                    module_param,
-                    arg_value,
-                ),
+                mod_param => {
+                    Self::parse_mod_param(&mut kmsg_buf, &mut mod_params, mod_param, arg_value)
+                }
             }
         }
         kmsg_buf.flush_with_level(verbosity_level.unwrap_or_default());
         Ok(CmdlineArgs {
             init: init.unwrap_or_else(|| INIT_PATH.into()),
             root_fstype,
-            module_params,
+            mod_params,
         })
     }
 
@@ -320,20 +318,20 @@ impl CmdlineArgs {
         Ok(())
     }
 
-    fn parse_module_param(
+    fn parse_mod_param(
         kmsg_buf: &mut KmsgBuf,
-        module_params: &mut BTreeMap<String, String>,
-        module_param: &str,
+        mod_params: &mut ModParams,
+        mod_param: &str,
         arg_value: Option<&str>,
     ) {
         if let Some(arg_value) = arg_value {
-            if let Some((module, param)) = module_param.split_once('.') {
-                module_params.insert(module.replace('-', "_"), format!("{}={}", param, arg_value));
+            if let Some((module, param)) = mod_param.split_once('.') {
+                mod_params.insert(module, param, arg_value);
             } else {
-                kmsg_buf.kwarn(format!("invalid key {}", module_param));
+                kmsg_buf.kwarn(format!("invalid key {}", mod_param));
             }
         } else {
-            kmsg_buf.kwarn(format!("invalid key {}", module_param));
+            kmsg_buf.kwarn(format!("invalid key {}", mod_param));
         }
     }
 
