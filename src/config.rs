@@ -185,6 +185,7 @@ impl TryFrom<&std::path::Path> for RuntimeConfig {
 pub struct CmdlineArgs {
     init: CString,
     root_opts: RootOptsBuilder,
+    resume_source: Option<PartitionSourceBuilder>,
     mod_params: ModParams,
 }
 impl CmdlineArgs {
@@ -215,6 +216,7 @@ impl CmdlineArgs {
         let mut verbosity_level: Option<VerbosityLevel> = None;
         let mut init: Option<CString> = None;
         let mut root_opts = RootOpts::builder();
+        let mut resume_source: Option<PartitionSourceBuilder> = None;
         let mut mod_params = ModParams::default();
         for arg in cmdline_spl {
             let arg = arg.map_err(|io| {
@@ -237,7 +239,7 @@ impl CmdlineArgs {
                 "booster.debug" => Self::parse_booster_debug(&mut kmsg_buf, &mut verbosity_level),
                 "quiet" => Self::parse_quiet(&mut verbosity_level),
                 "root" => Self::parse_root(&mut kmsg_buf, &mut root_opts, arg_value)?,
-                "resume" => Self::parse_resume(&mut kmsg_buf),
+                "resume" => Self::parse_resume(&mut kmsg_buf, &mut resume_source, arg_value)?,
                 "init" => Self::parse_init(&mut kmsg_buf, &mut init, arg_value)?,
                 "rootfstype" => Self::parse_rootfstype(&mut kmsg_buf, &mut root_opts, arg_value),
                 "rootflags" => Self::parse_rootflags(&mut kmsg_buf, &mut root_opts, arg_value),
@@ -255,6 +257,7 @@ impl CmdlineArgs {
         Ok(CmdlineArgs {
             init: init.unwrap_or_else(|| INIT_PATH.into()),
             root_opts,
+            resume_source,
             mod_params,
         })
     }
@@ -336,8 +339,20 @@ impl CmdlineArgs {
         }
     }
 
-    fn parse_resume(_kmsg_buf: &mut KmsgBuf) {
-        todo!("Parse resume")
+    fn parse_resume(
+        kmsg_buf: &mut KmsgBuf,
+        resume_source: &mut Option<PartitionSourceBuilder>,
+        arg_value: Option<&str>,
+    ) -> Result<(), PrintableErrno<String>> {
+        if let Some(arg_value) = arg_value {
+            resume_source.get_or_insert(
+                PartitionSourceBuilder::parse(arg_value)
+                    .ok_or_else(|| printable_error(PROGRAM_NAME, "unable to parse resume key"))?,
+            );
+        } else {
+            kmsg_buf.kwarn("resume key is empty, ignoring".to_string());
+        }
+        Ok(())
     }
 
     fn parse_root(
