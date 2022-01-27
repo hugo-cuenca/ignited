@@ -19,5 +19,5 @@ edition = "2021"
 cstr = "0.2.9"
 nix = "0.23.1"
 precisej-printable-errno = "0.2.2"
-serde = { version = "1.0.133", features = ["derive"] }
+serde = { version = "1.0.136", features = ["derive"] }
 toml = "0.5.8"
