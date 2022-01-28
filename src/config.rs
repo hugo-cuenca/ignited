@@ -2,7 +2,7 @@
 use crate::{
     early_logging::{buf::KmsgBuf, KConsole, VerbosityLevel},
     module::ModParams,
-    mount::{RootOpts, RootOptsBuilder, PartitionSourceBuilder},
+    mount::{PartitionSourceBuilder, RootOpts, RootOptsBuilder},
     INIT_PATH, PROGRAM_NAME,
 };
 use precisej_printable_errno::{printable_error, PrintableErrno};
