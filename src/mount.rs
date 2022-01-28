@@ -6,7 +6,10 @@ use nix::{
     unistd::mkdir,
 };
 use precisej_printable_errno::{printable_error, ErrnoResult, PrintableErrno};
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct TmpfsOpts {
@@ -46,10 +49,10 @@ impl RootOpts {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum PartitionSourceBuilder {
-    Uuid(String),
+    Uuid(uuid::Uuid),
     Label(String),
-    PartUuid(String),
-    PartUuidPartnroff(String),
+    PartUuid(uuid::Uuid),
+    PartUuidPartnroff(uuid::Uuid, i64),
     PartLabel(String),
     RawDevice(String),
 }
@@ -95,12 +98,14 @@ impl PartitionSourceBuilder {
     }
 
     fn parse_partuuid(partuuid: &str) -> Option<Self> {
-        todo!("Parse partuuid")
+        Some(Self::PartUuid(Self::uuid_from_str(partuuid)?))
     }
 
     fn parse_partuuid_partnroff(partuuid_partnroff: &str) -> Option<Self> {
         if let Some((partuuid, partnroff)) = partuuid_partnroff.split_once("/PARTNROFF=") {
-            todo!("Parse partuuid/partnroff")
+            let partnroff = i64::from_str(partnroff).ok()?;
+            let partuuid = Self::uuid_from_str(partuuid)?;
+            Some(Self::PartUuidPartnroff(partuuid, partnroff))
         } else {
             let partuuid = partuuid_partnroff;
             Self::parse_partuuid(partuuid)
@@ -112,7 +117,17 @@ impl PartitionSourceBuilder {
     }
 
     fn parse_uuid(uuid: &str) -> Option<Self> {
-        todo!("Parse uuid")
+        Some(Self::Uuid(Self::uuid_from_str(uuid)?))
+    }
+
+    // uuid is possible quoted, should be stripped before processing
+    fn uuid_from_str(uuid_str_q: &str) -> Option<uuid::Uuid> {
+        let uuid_str = uuid_str_q
+            .strip_prefix('"')
+            .map(|u| u.strip_suffix('"'))
+            .flatten()
+            .unwrap_or(uuid_str_q);
+        uuid::Uuid::from_str(uuid_str).ok()
     }
 
     pub fn build(self) -> String {
