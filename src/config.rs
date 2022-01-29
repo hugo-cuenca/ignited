@@ -11,7 +11,7 @@ use std::{
     collections::BTreeMap,
     ffi::CString,
     fs::{read_to_string, File},
-    io::{BufRead, BufReader, Read},
+    io::Read,
     path::Path,
 };
 
@@ -190,28 +190,22 @@ pub struct CmdlineArgs {
 }
 impl CmdlineArgs {
     pub fn parse_current(kcon: &mut KConsole) -> Result<Self, PrintableErrno<String>> {
-        let cmdline_buf = BufReader::new(File::open(Path::new("/proc/cmdline")).map_err(|io| {
+        let cmdline_buf = std::fs::read_to_string(Path::new("/proc/cmdline")).map_err(|io| {
             printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
-        })?);
-        let cmdline_spl = cmdline_buf.split(b' ');
-        Self::parse_inner(kcon, cmdline_spl)
+        })?;
+        let cmdline_spl = cmdline_buf.trim().split(' ');
+        let mut res = Self::parse_inner(kcon, cmdline_spl)?;
+        if res.root_opts.get_source().is_none() {
+            res.root_opts
+                .source(PartitionSourceBuilder::autodiscover_root(kcon)?);
+        }
+        Ok(res)
     }
 
-    fn parse_inner<B: BufRead>(
+    fn parse_inner<'a>(
         kcon: &mut KConsole,
-        cmdline_spl: std::io::Split<B>,
+        cmdline_spl: impl Iterator<Item = &'a str>,
     ) -> Result<Self, PrintableErrno<String>> {
-        macro_rules! try_or_cont {
-            ($expr:expr $(,)?) => {
-                match $expr {
-                    ::core::result::Result::Ok(val) => val,
-                    ::core::result::Result::Err(_) => {
-                        continue;
-                    }
-                }
-            };
-        }
-
         let mut kmsg_buf = KmsgBuf::new(kcon);
         let mut verbosity_level: Option<VerbosityLevel> = None;
         let mut init: Option<CString> = None;
@@ -219,11 +213,6 @@ impl CmdlineArgs {
         let mut resume_source: Option<PartitionSourceBuilder> = None;
         let mut mod_params = ModParams::default();
         for arg in cmdline_spl {
-            let arg = arg.map_err(|io| {
-                printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
-            })?;
-            let arg = try_or_cont!(std::str::from_utf8(&arg[..]));
-
             let (arg_key, arg_value) = match arg.split_once('=') {
                 Some((ak, av)) => (ak, Some(av)),
                 None => (arg, None),

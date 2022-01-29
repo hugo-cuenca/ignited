@@ -1,4 +1,4 @@
-use crate::PROGRAM_NAME;
+use crate::{KConsole, PROGRAM_NAME};
 use nix::{
     errno::Errno,
     mount::{mount, MsFlags},
@@ -47,16 +47,102 @@ impl RootOpts {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+pub struct EfiPartitionGptGuid(uuid::Uuid);
+impl EfiPartitionGptGuid {
+    pub fn get_current() -> Result<Self, PrintableErrno<String>> {
+        let (_, data) = Self::read_efi_var(
+            "LoaderDevicePartUUID",
+            "4a67b082-0a4c-41cf-b6c7-440b29bb8c4f",
+        )?;
+
+        // FIXME: inefficient conversion: "u8"s -> utf-16 "u16"s -> utf-8 String -> "u8"s
+        let uuid = {
+            let mut utf16_uuid: Vec<u16> = Vec::with_capacity(data.len() / 2);
+            for chunk in data.chunks(2) {
+                let u16_int = match chunk.try_into() {
+                    Ok(u16_b) => u16::from_le_bytes(u16_b),
+                    Err(_) => chunk[0] as u16,
+                };
+                utf16_uuid.push(u16_int);
+            }
+            let uuid = String::from_utf16(&utf16_uuid[..]).map_err(|_| {
+                printable_error(
+                    PROGRAM_NAME,
+                    "error while reading EFI variable: invalid UTF-16",
+                )
+            })?;
+            uuid::Uuid::from_str(&uuid[..]).map_err(|_| {
+                printable_error(
+                    PROGRAM_NAME,
+                    "error while reading EFI variable: invalid UUID",
+                )
+            })?
+        };
+
+        Ok(EfiPartitionGptGuid(uuid))
+    }
+
+    fn read_efi_var(name: &str, uuid: &str) -> Result<(u32, Vec<u8>), PrintableErrno<String>> {
+        let data = std::fs::read(format!("/sys/firmware/efi/efivars/{}-{}", name, uuid)).map_err(
+            |io| {
+                printable_error(
+                    PROGRAM_NAME,
+                    format!("error while reading EFI variable: {}", io),
+                )
+            },
+        )?;
+
+        let attr = u32::from_le_bytes((&data[..4]).try_into().map_err(|_| {
+            printable_error(
+                PROGRAM_NAME,
+                "error while reading EFI variable: TryFromSliceError",
+            )
+        })?);
+
+        Ok((attr, Vec::from(&data[4..])))
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum PartitionSourceBuilder {
     Uuid(uuid::Uuid),
     Label(String),
     PartUuid(uuid::Uuid),
     PartUuidPartnroff(uuid::Uuid, i64),
+    PartType(uuid::Uuid, EfiPartitionGptGuid),
     PartLabel(String),
     RawDevice(String),
 }
 impl PartitionSourceBuilder {
+    pub fn autodiscover_root(kcon: &mut KConsole) -> Result<Self, PrintableErrno<String>> {
+        #[cfg(target_arch = "x86_64")]
+        const ROOT_AUTODISC_UUID_TYPE: uuid::Uuid =
+            compiled_uuid::uuid!("4f68bce3-e8cd-4db1-96e7-fbcaf984b709");
+
+        #[cfg(target_arch = "x86")]
+        const ROOT_AUTODISC_UUID_TYPE: uuid::Uuid =
+            compiled_uuid::uuid!("44479540-f297-41b2-9af7-d131d5f0458a");
+
+        #[cfg(target_arch = "arm")]
+        const ROOT_AUTODISC_UUID_TYPE: uuid::Uuid =
+            compiled_uuid::uuid!("69dad710-2ce4-4e3c-b16c-21a1d49abed3");
+
+        #[cfg(target_arch = "aarch64")]
+        const ROOT_AUTODISC_UUID_TYPE: uuid::Uuid =
+            compiled_uuid::uuid!("b921b045-1df0-41c3-af44-4c6f280d3fae");
+
+        kinfo!(
+            kcon,
+            "root= param is not specified. Using GPT partition autodiscovery with guid type {}",
+            ROOT_AUTODISC_UUID_TYPE
+        );
+        Ok(Self::PartType(
+            ROOT_AUTODISC_UUID_TYPE,
+            EfiPartitionGptGuid::get_current()?,
+        ))
+    }
+
     #[inline]
     pub fn parse<R: AsRef<str>>(root: R) -> Option<Self> {
         Self::_parse(root.as_ref())
