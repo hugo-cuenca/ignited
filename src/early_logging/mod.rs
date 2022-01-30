@@ -5,7 +5,11 @@ mod kmsg;
 
 use crate::PROGRAM_NAME;
 use kmsg::KmsgFmt;
-use precisej_printable_errno::PrintableErrno;
+use precisej_printable_errno::{printable_error, PrintableErrno};
+use std::{
+    fs::{self, File},
+    io::Write,
+};
 
 pub struct KConsole {
     handle: KmsgFmt,
@@ -30,6 +34,42 @@ impl KConsole {
 
     pub fn change_verbosity(&mut self, new_level: VerbosityLevel) {
         self.current_level = new_level;
+    }
+
+    pub fn disable_throttling_on_verbose(&self) -> Result<(), PrintableErrno<String>> {
+        const SYS_KMSG_FILE: &str = "/proc/sys/kernel/printk_devkmsg";
+        const NO_THROTTLE_ENABLED: &[u8] = b"on\n";
+
+        if self.current_level != VerbosityLevel::Debug {
+            return Ok(());
+        }
+
+        let data = fs::read(SYS_KMSG_FILE).map_err(|io| {
+            printable_error(
+                PROGRAM_NAME,
+                format!("error while reading {}: {}", SYS_KMSG_FILE, io),
+            )
+        })?;
+        if &data[..] == NO_THROTTLE_ENABLED {
+            return Ok(());
+        }
+
+        File::options()
+            .write(true)
+            .open(SYS_KMSG_FILE)
+            .map_err(|io| {
+                printable_error(
+                    PROGRAM_NAME,
+                    format!("error while writing {}: {}", SYS_KMSG_FILE, io),
+                )
+            })?
+            .write_all(NO_THROTTLE_ENABLED)
+            .map_err(|io| {
+                printable_error(
+                    PROGRAM_NAME,
+                    format!("error while writing {}: {}", SYS_KMSG_FILE, io),
+                )
+            })
     }
 }
 

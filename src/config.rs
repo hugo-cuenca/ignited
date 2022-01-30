@@ -5,7 +5,7 @@ use crate::{
     mount::{PartitionSourceBuilder, RootOpts, RootOptsBuilder},
     INIT_PATH, PROGRAM_NAME,
 };
-use precisej_printable_errno::{printable_error, PrintableErrno};
+use precisej_printable_errno::{printable_error, PrintableErrno, PrintableResult};
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
@@ -190,15 +190,21 @@ pub struct CmdlineArgs {
 }
 impl CmdlineArgs {
     pub fn parse_current(kcon: &mut KConsole) -> Result<Self, PrintableErrno<String>> {
-        let cmdline_buf = std::fs::read_to_string(Path::new("/proc/cmdline")).map_err(|io| {
+        let cmdline_buf = std::fs::read_to_string("/proc/cmdline").map_err(|io| {
             printable_error(PROGRAM_NAME, format!("error while reading config: {}", io))
         })?;
         let cmdline_spl = cmdline_buf.trim().split(' ');
         let mut res = Self::parse_inner(kcon, cmdline_spl)?;
+
         if res.root_opts.get_source().is_none() {
             res.root_opts
                 .source(PartitionSourceBuilder::autodiscover_root(kcon)?);
         }
+
+        if let Err(e) = kcon.disable_throttling_on_verbose() {
+            kinfo!(kcon, "{}", e);
+        }
+
         Ok(res)
     }
 
