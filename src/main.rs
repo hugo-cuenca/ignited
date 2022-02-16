@@ -3,19 +3,24 @@
 //! # What?
 //! ignited is a simple program meant to run before your Linux system partition has even been
 //! mounted! It is intended to run inside your initramfs and bring your system to a usable
-//! state, at which point it hands off execution to your `/sbin/init` program.
+//! state, at which point it hands off execution to your `/sbin/init` program (which could be
+//! systemd, initd, or any other init program). More specifically, ignited would be your
+//! initramfs' `/init`.
 //!
-//! ignited, although written in Rust, is based on [Booster](https://github.com/anatol/booster)
-//! which is written in Go. Booster is licensed under MIT, a copy of which can be found
-//! [here](https://raw.githubusercontent.com/anatol/booster/master/LICENSE).
+//! ignited is also the program used to generate initramfs images that contains the ignited
+//! `/init` and necessary kernel modules.
+//!
+//! Although written in Rust, ignited is based on [Booster](https://github.com/anatol/booster)
+//! which itself is written in Go. Booster is licensed under
+//! [MIT](https://raw.githubusercontent.com/anatol/booster/master/LICENSE).
 //!
 //! ## What is an initramfs?
 //! From Booster's README:
 //!
-//!     Initramfs is a specially crafted small root filesystem
-//!     that mounted at the early stages of Linux OS boot process.
-//!     This initramfs among other things is responsible for
-//!     [...] mounting [the] root filesystem.
+//!     Initramfs is a specially crafted small root filesystem that
+//!     [is] mounted at the early stages of Linux OS boot process.
+//!     This initramfs, among other things, is responsible for [...]
+//!     mounting [the] root filesystem.
 //!
 //! In other words, the initramfs is in charge of bringing the system to a usable state,
 //! mounting the root filesystem, and handing off further work to your system's init.
@@ -30,22 +35,74 @@
 //! if you contact me.
 //!
 //! # Why?
-//! ## Why not booster?
-//! ## Why not mkinitcpio?
+//! initramfs generation programs generally fall into 2 categories:
+//!
+//! - Distro-specific programs such as `mkinitcpio`.
+//! - Universal, extensible programs such as `dracut`.
+//!
+//! The former is generally tied to a specific Linux distribution (such as Arch Linux) and
+//! will not function properly outside of it without modification. The latter eschews specific
+//! behaviors in favor of widely-used, mostly distro-agnostic components (such as systemd or
+//! busybox). In most cases, neither are specifically designed for boot time performance nor
+//! image-generation performance. Neither do they strive to be self-contained.
+//!
+//! ignited seeks to fulfill three goals:
+//!
+//! - Fast image-generation and boot time.
+//! - Compatibility with as many distributions as possible (including ones without systemd,
+//!   busybox, or even udevd).
+//! - Contain as close to no external dependencies as possible.
+//!
+//! At the time of this writing, not all goals have been fulfilled. See `GOALS.md` in the
+//! git repo for what progress needs to be made.
+//!
 //! ## Why not dracut?
+//! - `dracut` doesn't optimize for image-generation speed, as evidenced by
+//!   [this post by Michael Stapelberg](https://michael.stapelberg.ch/posts/2020-01-21-initramfs-from-scratch-golang/)
+//!   in which he recorded ~31s for dracut image generation with `gzip` (lowered to ~9s with
+//!   `pigz`).
+//! - While `dracut` is compatible with many distributions (such as Fedora/RHEL, Debian,
+//!   Arch Linux, openSUSE, among others), its upstream default hooks rely on systemd and/or
+//!   busybox. Theoretically, it seems that special hooks could be made for non-standard
+//!   configurations, but they don't seem to be explicitly supported.
+//! - While `systemd` might be statically compiled with musl, such configuration is non-standard
+//!   and requires various patches. `dracut`'s upstream default hooks also bundle many scripts
+//!   to be executed at boot time, thus requiring additional files and interpreters (plus its
+//!   dynamic link and their libraries). Additionally, image-generation consists on running
+//!   various scripts and binaries to build the image, which may pull in other dependencies.
+//!
+//! ## Why not mkinitcpio?
+//! - Image-generation takes between 10-20 seconds on my AMD Threadripper 3960X with `mkinitcpio`.
+//! - `mkinitcpio` is specifically designed for Arch Linux and derivatives.
+//! - Two options are given for initramfs generation by default: `udev+busybox`, or `systemd`,
+//!   both of which come with the same problems as described in `Why not dracut?`. Additionally,
+//!   `mkinitcpio` makes use of hooks (similarly to `dracut`), therefore inheriting its drawbacks.
+//!
+//! ## Why not booster?
+//! ignited is based on `booster`, therefore inheriting its benefits over other initramfs
+//! generators. As time progresses, ignited will differentiate itself from `booster` with specific
+//! features such as verified root, A/B system partitions, and `/vendor` partition support.
+//!
 //! # How?
+//! While all code should be properly documented, `docs.rs` currently doesn't support automatic
+//! rustdoc generation for binaries. Work is being done to remedy this and provide proper generated
+//! documentation. In the meantime you can browse the source code.
+//!
+//! `ignited(1)` and `ignited(8)` man pages will be made in the future describing the initramfs'
+//! `/init` behavior and the initramfs generator respectively.
+//!
 //! # initd?
-//! To be written.
-//!
-//! ***
-//!
-//! This crate currently serves the purpose of reserving the name `ignited` in crates.io,
-//! and contains no other code than the standard "Hello, world!".
+//! initd is a simple, serviced-compatible init implementation that is perfectly suitable for
+//! systems with ignited-generated initramfs. ignited can handoff further execution to initd after
+//! the root filesystem has been mounted. You can learn more on
+//! [initd's git repo](https://github.com/hugo-cuenca/initd). Note that having initd installed is
+//! not necessary to use ignited, as it can function just as well if your system uses systemd,
+//! runit, dinit, OpenRC, or whatever init program you choose to use.
 #![crate_name = "ignited"]
 // #![cfg_attr(test, deny(warnings))] // TODO
 // #![deny(unused)] // TODO
 #![deny(unstable_features)]
-// #![warn(missing_docs)] // TODO
+#![deny(missing_docs)]
 #![allow(rustdoc::private_intra_doc_links)]
 
 #[macro_use]
@@ -65,9 +122,11 @@ use crate::{
 };
 use cstr::cstr;
 use nix::mount::MsFlags;
+use nix::unistd::execv;
 use precisej_printable_errno::{
-    printable_error, ExitError, ExitErrorResult, PrintableErrno, PrintableResult,
+    printable_error, ErrnoResult, ExitError, ExitErrorResult, PrintableErrno, PrintableResult,
 };
+use std::hint::unreachable_unchecked;
 use std::{
     ffi::{CStr, OsStr},
     path::Path,
@@ -78,27 +137,36 @@ use std::{
 /// this constant. Useful for PrintableResult.
 const PROGRAM_NAME: &str = "ignited";
 
-/// Path where init is located. Used in the `execv` call to actually execute
-/// init.
+/// Path where init is normally located. Used in the `execv` call to actually
+/// execute init. The boot-time parameter `init=<PATH>` will replace this default
+/// with `<PATH>`.
 ///
-/// **Note**: if you are a distribution maintainer, make sure your serviced package
-/// actually puts the executable in `/sbin/init`. Otherwise, you must maintain a
-/// patch changing `INIT_PATH` to the appropriate path (e.g. `/init`,
-/// `/bin/init`, or `/usr/bin/init`).
-const INIT_PATH: &CStr = cstr!("/sbin/init");
+/// **Note**: if you are a distribution maintainer, make sure your
+/// `initd`/`systemd`/`dinit`/whatever package actually puts the `init` executable
+/// in `/sbin/init`. Otherwise, you must maintain a patch changing `INIT_PATH` to
+/// the appropriate path (e.g. `/init`, `/bin/init`, or `/usr/bin/init`).
+const INIT_DEFAULT_PATH: &CStr = cstr!("/sbin/init");
 
 /// Error message used in case `INIT_PATH` is not able to be executed by `execv`.
 /// This can be caused by not having init installed in the right path with the
 /// proper executable permissions.
 const INIT_ERROR: &str = "unable to execute init";
 
-/// Path where `ignited`'s config file is located. TODO
+/// Path where `ignited`'s config file is located.
+///
+/// See [RuntimeConfig] for the structure of the TOML file.
 const IGNITED_CONFIG: &str = "/etc/ignited/engine.toml";
 
-/// Path where `ignited`'s module aliases file is located. TODO
+/// Path where `ignited`'s module aliases file is located.
+///
+/// See [ModAliases] for the structure of the file.
 const IGNITED_MODULE_ALIASES: &str = "/usr/lib/modules/ignited.alias";
 
-/// Check if inside initrd. TODO
+/// Check to see if we are running as the `init` inside the initramfs.
+///
+/// - Make sure we are PID 1.
+/// - Check for the existence of `/etc/initrd-release` (see
+/// [INITRD_INTERFACE](https://systemd.io/INITRD_INTERFACE/)).
 fn initial_sanity_check() -> Result<(), PrintableErrno<String>> {
     // We must be the initramfs' PID1
     (getpid() == 1).then(|| ()).ok_or_else(|| {
@@ -123,7 +191,10 @@ fn initial_sanity_check() -> Result<(), PrintableErrno<String>> {
     Ok(())
 }
 
-/// Perform initial work. TODO
+/// Perform initial work.
+///
+/// - Mount `/dev` as `devtmpfs`.
+/// - Open `/dev/kmsg` for writing.
 fn initialize_kcon() -> Result<KConsole, PrintableErrno<String>> {
     Mount::DevTmpfs.mount()?;
 
@@ -132,7 +203,11 @@ fn initialize_kcon() -> Result<KConsole, PrintableErrno<String>> {
     Ok(kcon)
 }
 
-/// Check if booted kernel version matches initrd kernel version. TODO
+/// Check if booted kernel version matches initramfs kernel version.
+///
+/// The current initramfs [RuntimeConfig] contains the kernel version it was built for.
+/// To prevent a module version mismatch, check if the current booted kernel version
+/// matches the one in the config.
 fn kernel_ver_check(config: InitramfsMetadata) -> Result<(), PrintableErrno<String>> {
     let cur_ver = &get_booted_kernel_ver()[..];
     let conf_ver = config.kernel_ver();
@@ -164,7 +239,18 @@ fn main() {
 
 /// Here is where it actually begins.
 ///
-/// TODO write docs
+/// - Mount `/sys`.
+/// - Mount `/proc`.
+/// - Mount `/run`.
+/// - If in EFI mode, mount `/sys/firmware/efi/efivars`.
+/// - Set path to a sensible default: `/usr/sbin:/usr/bin:/sbin:/bin`.
+/// - Read the current [RuntimeConfig].
+/// - Read the current [ModAliases].
+/// - Parse command line arguments.
+/// - Create the `/run/initramfs` directory as per
+///   [systemd's INITRD_INTERFACE](https://systemd.io/INITRD_INTERFACE/).
+///
+/// TODO: add more
 fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     // Commence ignition
     Mount::Sysfs.mount().bail(3)?;
@@ -184,7 +270,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
         Mount::Efivarfs.mount().bail(3)?;
     }
 
-    std::env::set_var("PATH", OsStr::new("/usr/bin")); // Panics on error
+    std::env::set_var("PATH", OsStr::new("/usr/sbin:/usr/bin:/sbin:/bin")); // Panics on error
 
     let config = RuntimeConfig::try_from(Path::new(IGNITED_CONFIG)).bail(4)?;
     kernel_ver_check(config.metadata()).bail(5)?;
@@ -199,5 +285,13 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
         kdebug!(kcon, "booted in bios/legacy mode");
     }
 
-    Ok(())
+    // TODO: scan for devices, mount root, chroot & pivot, cleanup, ...
+    let _ = aliases;
+
+    execv(args.init(), &[args.init()])
+        .printable(PROGRAM_NAME, INIT_ERROR)
+        .bail(101)?;
+
+    // SAFETY: we either shifted execution to init or bailed already.
+    unsafe { unreachable_unchecked() }
 }

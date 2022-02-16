@@ -1,4 +1,4 @@
-//! TODO
+//! Miscellaneous functions that don't fit in any other (rust code) module.
 
 use crate::PROGRAM_NAME;
 use nix::{
@@ -9,12 +9,16 @@ use nix::{
 use precisej_printable_errno::{ErrnoResult, PrintableErrno};
 use std::path::Path;
 
-/// Get current kernel version. TODO
+/// Get current kernel version. Corresponds to the `release` field in the `utsname`
+/// struct returned by `uname(2)`.
+///
+/// See `uname(2)` for more information.
 pub fn get_booted_kernel_ver() -> String {
     uname().release().to_string()
 }
 
-/// TODO
+/// Create `/run/initramfs`, which can be used by the booted system to switch back to
+/// the initramfs environment on shutdown.
 ///
 /// Per [systemd's INITRD_INTERFACE](https://systemd.io/INITRD_INTERFACE/).
 pub fn make_shutdown_pivot_dir() -> Result<(), PrintableErrno<String>> {

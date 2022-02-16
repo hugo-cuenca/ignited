@@ -1,4 +1,13 @@
-//! TODO
+//! Kernel logging infrastructure from userspace.
+//!
+//! The Linux kernel already contains a robust logging infrastructure internally
+//! based on its `printk` buffer and extensible by userspace access to `/dev/kmsg`.
+//! Various programs such as `rsyslog`, `syslog-ng`, and `systemd-journald` exist
+//! that are able to, among other things, provide features on top of `/dev/kmsg`
+//! such as remote access, disk persistence, corruption detection, among others.
+//! This module contains macros and structures that allow easy logging of ignited's
+//! messages to `/dev/kmsg` and reap the benefits of the comprehensive tooling
+//! designed around it.
 
 pub mod buf;
 mod kmsg;
@@ -11,11 +20,21 @@ use std::{
     io::Write,
 };
 
+/// Userspace handle to the kernel buffer.
+/// 
+/// Once obtained through `Self::new()`, this handle is rarely used directly. Use the
+/// various macros contained in this file instead, as they allow writing to the buffer
+/// through this handle.
+#[derive(Debug, Clone)]
 pub struct KConsole {
     handle: KmsgFmt,
     current_level: VerbosityLevel,
 }
 impl KConsole {
+    /// Attempt to open a new handle to the kernel buffer.
+    ///
+    /// Note: the default [VerbosityLevel] threshold (as defined in its implementation of
+    /// [Default]) is used, and should be changed via [KConsole::change_verbosity] if requested.
     pub fn new() -> Result<KConsole, PrintableErrno<String>> {
         Ok(KConsole {
             handle: KmsgFmt::new()?,
@@ -23,6 +42,9 @@ impl KConsole {
         })
     }
 
+    /// Write a new entry to the buffer.
+    ///
+    /// The entry will only be written if its [VerbosityLevel] is lower or equal to the threshold.
     #[inline]
     fn println(&mut self, req_level: VerbosityLevel, args: String) {
         if req_level <= self.current_level {
@@ -32,10 +54,15 @@ impl KConsole {
         }
     }
 
+    /// Change the [VerbosityLevel] threshold.
     pub fn change_verbosity(&mut self, new_level: VerbosityLevel) {
         self.current_level = new_level;
     }
 
+    /// Disable `kmsg` throttling when on [VerbosityLevel::Debug] threshold.
+    ///
+    /// Debug logging generates many messages. In order to preserve them all, we can disable
+    /// `kmsg` throttling.
     pub fn disable_throttling_on_verbose(&self) -> Result<(), PrintableErrno<String>> {
         const SYS_KMSG_FILE: &str = "/proc/sys/kernel/printk_devkmsg";
         const NO_THROTTLE_ENABLED: &[u8] = b"on\n";
@@ -73,15 +100,28 @@ impl KConsole {
     }
 }
 
-/// TODO
+/// Log entry verbosity level, ranging from critical (`Crit`) to debug (`Debug`).
+///
+/// Default threshold is defined as `Info`.
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(u8)]
 pub enum VerbosityLevel {
+    /// `debug` verbosity level = 7.
     Debug = 7,
+
+    /// `info` verbosity level = 6.
     Info = 6,
+
+    /// `notice` verbosity level = 5.
     Notice = 5,
+
+    /// `warn` or `warning` verbosity level = 4.
     Warn = 4,
+
+    /// `err` or `error` verbosity level = 3.
     Err = 3,
+
+    /// Critical verbosity level = 2. Not specifiable via command-line arguments.
     Crit = 2,
 }
 impl TryFrom<&str> for VerbosityLevel {
@@ -104,11 +144,15 @@ impl Default for VerbosityLevel {
     }
 }
 
+/// Write a new entry to the buffer.
+///
+/// Note: don't use this function directly. Use a convenience macro like `kinfo!()` instead.
 #[doc(hidden)]
 pub fn _print_message_ln(kcon: &mut KConsole, level: VerbosityLevel, args: String) {
     kcon.println(level, args)
 }
 
+/// Write a new entry to the buffer with [Debug verbosity][VerbosityLevel::Debug].
 #[macro_export]
 macro_rules! kdebug {
     ($kcon:tt, $($arg:tt)*) => ({
@@ -117,6 +161,7 @@ macro_rules! kdebug {
     })
 }
 
+/// Write a new entry to the buffer with [Info verbosity][VerbosityLevel::Info].
 #[macro_export]
 macro_rules! kinfo {
     ($kcon:tt, $($arg:tt)*) => ({
@@ -125,6 +170,7 @@ macro_rules! kinfo {
     })
 }
 
+/// Write a new entry to the buffer with [Notice verbosity][VerbosityLevel::Notice].
 #[macro_export]
 macro_rules! knotice {
     ($kcon:tt, $($arg:tt)*) => ({
@@ -133,6 +179,7 @@ macro_rules! knotice {
     })
 }
 
+/// Write a new entry to the buffer with [Warn verbosity][VerbosityLevel::Warn].
 #[macro_export]
 macro_rules! kwarn {
     ($kcon:tt, $($arg:tt)*) => ({
@@ -141,6 +188,7 @@ macro_rules! kwarn {
     })
 }
 
+/// Write a new entry to the buffer with [Err verbosity][VerbosityLevel::Err].
 #[macro_export]
 macro_rules! kerr {
     ($kcon:tt, $($arg:tt)*) => ({
@@ -149,6 +197,7 @@ macro_rules! kerr {
     })
 }
 
+/// Write a new entry to the buffer with [Crit verbosity][VerbosityLevel::Crit].
 #[macro_export]
 macro_rules! kcrit {
     ($kcon:tt, $($arg:tt)*) => ({
@@ -157,7 +206,9 @@ macro_rules! kcrit {
     })
 }
 
+/// For compile-time testing only. Should never be called.
 #[doc(hidden)]
+#[allow(dead_code)]
 fn _test(kcon: &mut KConsole) {
     kdebug!(kcon, "TEST");
     kinfo!(kcon, "TEST");

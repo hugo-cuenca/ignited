@@ -1,3 +1,5 @@
+//! Tools to buffer log entries before flushing to `/dev/kmsg`.
+
 use crate::{
     early_logging::{KConsole, VerbosityLevel, _print_message_ln},
     kcrit, kdebug, kerr, kinfo, knotice, kwarn,
@@ -7,12 +9,15 @@ struct KmsgBufEntry {
     level: VerbosityLevel,
     args: String,
 }
+
+/// Buffers messages destined to `/dev/kmsg` before the global [VerbosityLevel] threshold is known.
 pub struct KmsgBuf<'a> {
     inner_con: &'a mut KConsole,
     inner_buf: Vec<KmsgBufEntry>,
     flushed: bool,
 }
 impl<'a> KmsgBuf<'a> {
+    /// Construct a new buffer.
     pub fn new(kcon: &'a mut KConsole) -> Self {
         Self {
             inner_con: kcon,
@@ -21,16 +26,19 @@ impl<'a> KmsgBuf<'a> {
         }
     }
 
+    /// Log a debug entry.
     #[inline]
     pub fn kdebug(&mut self, args: String) {
         self._kany(VerbosityLevel::Debug, args)
     }
 
+    /// Log a warn entry.
     #[inline]
     pub fn kwarn(&mut self, args: String) {
         self._kany(VerbosityLevel::Warn, args)
     }
 
+    /// Set the global verbosity threshold and flush all buffered log messages.
     pub fn flush_with_level(&mut self, level: VerbosityLevel) {
         let buf = &mut self.inner_buf;
 

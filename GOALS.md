@@ -1,0 +1,51 @@
+# GOALS
+- [ ] Fast image-generation and boot time
+  - [ ] Fast image-generation time
+    - [ ] Generic image
+    - [ ] Device-specific image
+  - [X] Fast boot time
+    - [ ] Benchmark average boot time between `mkinitcpio`, `dracut`, `booster`
+      - [ ] Image scenarios
+        - [ ] Generic image
+        - [ ] Device-specific image
+      - [ ] Partition scenarios
+        - [ ] Simple `ext4` root
+        - [ ] Simple `ext4` root w/ separate `f2fs` `/usr` partition
+        - [ ] `btrfs` on LUKSv2 volume as root
+        - [ ] LVM on LUKSv2 volume, logical volume #1 being a 10G `xfs` partition
+
+
+- [ ] Compatibility with as many distributions as possible
+  - [X] Do not depend on distro-specific programs, commands, or behaviors
+  - [X] Compatible with glibc and musl
+  - [X] Can be statically or dynamically linked
+  - [ ] Testing
+    - [ ] Popular/standard distros
+      - [ ] Debian (amd64) [CI, BETA blocker]
+      - [ ] Arch Linux [CI, main blocker]
+      - [ ] Arch Linux ARM (aarch64) [CI, BETA blocker]
+      - [ ] Gentoo (amd64, standard systemd)
+      - [ ] Solus
+    - [ ] No systemd
+      - [ ] Devuan (amd64)
+      - [ ] Artix (dinit)
+      - [ ] Gentoo (amd64, standard OpenRC)
+      - [ ] Void Linux [CI, ALPHA blocker]
+    - [ ] No systemd + no busybox
+      - [ ] Gentoo (amd64, custom OpenRC w/ toybox)
+    - [ ] No systemd + no busybox + no udevd
+      - [ ] Gentoo (amd64, custom OpenRC w/ mdev, nldev)
+      - [ ] Gentoo (amd64, custom OpenRC w/ smdev) [RC blocker]
+    - Oddballs
+      - [ ] Android-x86 9.0 (64-bit)
+
+
+- [ ] Contain as close to no external dependencies as possible
+  - [ ] Only include kernel modules and statically-compiled ignited binary on simple cases
+    - [X] Single, kernel-supported filesystem partition as root
+    - [X] Separate root and `/usr` kernel-supported filesystem partitions
+    - [ ] Single, kernel-supported filesystem partition with plain dm-crypt encryption as root
+    - [ ] Single, kernel-supported filesystem partition with LUKSv1/LUKSv2 encryption as root
+  - [ ] Include standard applications (along with their required libs, linker) when required
+    - [ ] `lvm2` - LVM logical volumes
+    - [ ] TODO: expand this list

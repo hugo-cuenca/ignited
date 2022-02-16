@@ -1,3 +1,5 @@
+//! Mount options for filesystems.
+
 use crate::{KConsole, PROGRAM_NAME};
 use nix::{
     errno::Errno,
@@ -11,6 +13,7 @@ use std::{
     str::FromStr,
 };
 
+/// Options for mounting `tmpfs` filesystems.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct TmpfsOpts {
     source: String,
@@ -19,6 +22,13 @@ pub struct TmpfsOpts {
     options: Option<String>,
 }
 impl TmpfsOpts {
+    /// Options for mounting `tmpfs` filesystems.
+    ///
+    /// - `source` is the name of the `tmpfs` instance (e.g. `run`).
+    /// - `target` is the path to the folder where the `tmpfs` is to be mounted (e.g. `/run`).
+    /// - `flags` are the mount flags to be applied (e.g.
+    /// [`MS_NOSUID`][MsFlags::MS_NOSUID]`|`[`MS_NODEV`][MsFlags::MS_NODEV]).
+    /// - `options` are other mount options to be passed at mount-time (e.g. `mode=755`).
     pub fn new<S1: Into<String>, S2: Into<String>, P: Into<PathBuf>>(
         source: S1,
         target: P,
@@ -34,6 +44,7 @@ impl TmpfsOpts {
     }
 }
 
+/// Options for mounting the new root filesystem.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RootOpts {
     source: String,
@@ -42,14 +53,17 @@ pub struct RootOpts {
     options: Option<String>,
 }
 impl RootOpts {
+    /// Builder: options for mounting the new root filesystem.
     pub fn builder() -> RootOptsBuilder {
         Default::default()
     }
 }
 
+/// EFI Partition GPT PARTUUID
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub struct EfiPartitionGptGuid(uuid::Uuid);
 impl EfiPartitionGptGuid {
+    /// Get the current booted EFI Partition PartUUID
     pub fn get_current() -> Result<Self, PrintableErrno<String>> {
         let (_, data) = Self::read_efi_var(
             "LoaderDevicePartUUID",
@@ -104,17 +118,38 @@ impl EfiPartitionGptGuid {
     }
 }
 
+/// Builder: reconstruct raw device path from `{root,resume}=<PARAMETER>`.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum PartitionSourceBuilder {
+    /// `root=UUID=<uuid>` or `root=/dev/disk/by-uuid/<uuid>`: partition UUID.
     Uuid(uuid::Uuid),
+
+    /// `root=LABEL=<label>` or `root=/dev/disk/by-label/<label>`: partition Label.
     Label(String),
+
+    /// `root=PARTUUID=<partuuid>` or `root=/dev/disk/by-partuuid/<partuuid>`: GPT UUID.
     PartUuid(uuid::Uuid),
+
+    /// `root=PARTUUID=<partuuid>/PARTNROFF=<partnum>`: GPT UUID with PARTNROFF value.
     PartUuidPartnroff(uuid::Uuid, i64),
+
+    /// `<no root parameter>`: GPT partition type UUID. See
+    /// [systemd's DISCOVERABLE_PARTITIONS article](https://systemd.io/DISCOVERABLE_PARTITIONS/)
+    /// for more information.
     PartType(uuid::Uuid, EfiPartitionGptGuid),
+
+    /// `root=PARTLABEL=<partlabel>` or `root=/dev/disk/by-partlabel/<partlabel>`: GPT Label.
     PartLabel(String),
+
+    /// `root=/dev/<device>`: raw Linux device path.
     RawDevice(String),
 }
 impl PartitionSourceBuilder {
+    /// Autodiscover the root partition with GPT partition autodiscovery.
+    ///
+    /// See
+    /// [systemd's DISCOVERABLE_PARTITIONS article](https://systemd.io/DISCOVERABLE_PARTITIONS/)
+    /// for more info. Useful if no `root` parameter is passed through `/proc/cmdline`.
     pub fn autodiscover_root(kcon: &mut KConsole) -> Result<Self, PrintableErrno<String>> {
         #[cfg(target_arch = "x86_64")]
         const ROOT_AUTODISC_UUID_TYPE: uuid::Uuid =
@@ -143,6 +178,15 @@ impl PartitionSourceBuilder {
         ))
     }
 
+    /// Reconstruct raw device path from `{root,resume}=<PARAMETER>`.
+    ///
+    /// Possible parameters are:
+    /// - `UUID=<uuid>` or `/dev/disk/by-uuid/<uuid>`: partition UUID.
+    /// - `LABEL=<label>` or `/dev/disk/by-label/<label>`: partition Label.
+    /// - `PARTUUID=<partuuid>/PARTNROFF=<partnum>`: GPT UUID with PARTNROFF value.
+    /// - `PARTUUID=<partuuid>` or `/dev/disk/by-partuuid/<partuuid>`: GPT UUID.
+    /// - `PARTLABEL=<partlabel>` or `/dev/disk/by-partlabel/<partlabel>`: GPT Label.
+    /// - `/dev/<device>`: raw Linux device path.
     #[inline]
     pub fn parse<R: AsRef<str>>(root: R) -> Option<Self> {
         Self::_parse(root.as_ref())
@@ -216,11 +260,13 @@ impl PartitionSourceBuilder {
         uuid::Uuid::from_str(uuid_str).ok()
     }
 
+    /// Builder: reconstruct raw device path as String.
     pub fn build(self) -> String {
         todo!("convert to device path")
     }
 }
 
+/// Builder: options for mounting the new root filesystem.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct RootOptsBuilder {
     source: Option<PartitionSourceBuilder>,
@@ -230,15 +276,18 @@ pub struct RootOptsBuilder {
     options: Option<String>,
 }
 impl RootOptsBuilder {
+    /// Set the root partition source.
     pub fn source(&mut self, source: PartitionSourceBuilder) -> &mut Self {
         self.source.get_or_insert(source);
         self
     }
 
+    /// Get the current root partition source if present.
     pub fn get_source(&self) -> Option<&PartitionSourceBuilder> {
         self.source.as_ref()
     }
 
+    /// Set the root partition type.
     #[inline]
     pub fn fstype<F: Into<String>>(&mut self, fstype: F) -> &mut Self {
         self._fstype(fstype.into());
@@ -248,20 +297,26 @@ impl RootOptsBuilder {
         self.fstype.get_or_insert(fstype);
     }
 
+    /// Get the current root partition type if present.
     pub fn get_fstype(&self) -> Option<&str> {
         self.fstype.as_deref()
     }
 
+    /// Initially mount the root partition as read-only.
     pub fn ro(&mut self) -> &mut Self {
         self.rw = false;
         self
     }
 
+    /// Initially mount the root partition as writable.
     pub fn rw(&mut self) -> &mut Self {
         self.rw = true;
         self
     }
 
+    /// Add mount-time options to the root partition.
+    ///
+    /// Note: `nosymfollow` is currently ignored by ignited.
     #[inline]
     pub fn add_opts<O: AsRef<str>>(&mut self, o: O) -> &mut Self {
         self._add_opts(o.as_ref());
@@ -292,7 +347,6 @@ impl RootOptsBuilder {
                 "sync" => self.flags.insert(MsFlags::MS_SYNCHRONOUS),
                 "nosymfollow" => {
                     // FIXME: suggest adding MsFlags::MS_NOSYMFOLLOW to nix
-                    // TODO: document lack of options
                 }
                 option => {
                     match self.options {
@@ -307,6 +361,9 @@ impl RootOptsBuilder {
         }
     }
 
+    /// Builder: attempt to build the options struct used for mounting the new root filesystem.
+    /// If all parameters are present, the result shall be of type [RootOpts]. Otherwise an`Err`
+    /// containing `self` is returned.
     pub fn try_build(self) -> Result<RootOpts, Self> {
         let (source, fstype) = match (&self.source, &self.fstype) {
             (Some(source), Some(fstype)) => (source.clone().build(), fstype.clone()),
@@ -325,7 +382,9 @@ impl RootOptsBuilder {
         })
     }
 
-    // TODO document panic on unwrap/incomplete
+    /// Builder: forcibly build the options struct used for mounting the new root filesystem.
+    /// If all parameters are present, the result shall be of type [RootOpts]. Otherwise
+    /// **this function will panic**.
     pub fn build(self) -> RootOpts {
         let source = self.source.unwrap().build();
         let fstype = self.fstype.unwrap();
@@ -355,14 +414,34 @@ impl Default for RootOptsBuilder {
     }
 }
 
+/// Different file systems to be mounted on initrd initialization.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Mount {
+    /// `/dev`
     DevTmpfs,
+
+    /// `/dev/pts`
     DevPts,
+
+    /// `/proc`
     Proc,
+
+    /// `/sys`
     Sysfs,
+
+    /// All `tmpfs` filesystems.
+    ///
+    /// Examples:
+    /// - `/tmp`
+    /// - `/run`
+    /// - `/dev/shm`
     Tmpfs(TmpfsOpts),
+
+    /// `/sys/firmware/efi/efivars`
     Efivarfs,
+
+    /// Final root filesystem, initially mounted as `/system_root`, chrooted into and
+    /// made `/` just before handing off execution to its `/sbin/init`.
     Root(RootOpts),
 }
 impl Mount {
@@ -474,6 +553,8 @@ impl Mount {
         }
     }
 
+    /// Mount the filesystem to its defined target by executing the `mount(2)` syscall
+    /// with the required parameters.
     pub fn mount(&self) -> Result<(), PrintableErrno<String>> {
         let target = self.target();
         Self::mkdirall(target)?;
