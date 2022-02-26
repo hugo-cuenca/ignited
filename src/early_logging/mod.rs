@@ -21,7 +21,7 @@ use std::{
 };
 
 /// Userspace handle to the kernel buffer.
-/// 
+///
 /// Once obtained through `Self::new()`, this handle is rarely used directly. Use the
 /// various macros contained in this file instead, as they allow writing to the buffer
 /// through this handle.

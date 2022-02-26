@@ -123,7 +123,7 @@ use crate::{
     util::{get_booted_kernel_ver, make_shutdown_pivot_dir},
 };
 use cstr::cstr;
-use mio::{Events, Token, Poll, Waker};
+use mio::{Events, Poll, Token, Waker};
 use nix::{mount::MsFlags, unistd::execv};
 use precisej_printable_errno::{
     printable_error, ErrnoResult, ExitError, ExitErrorResult, PrintableErrno, PrintableResult,
@@ -293,19 +293,25 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
         kdebug!(kcon, "booted in bios/legacy mode");
     }
 
-    let mut evloop = Poll::new().map_err(|io| printable_error(
-        PROGRAM_NAME,
-        format!("error while setting up main event loop: {}", io),
-    )).bail(9)?;
+    let mut evloop = Poll::new()
+        .map_err(|io| {
+            printable_error(
+                PROGRAM_NAME,
+                format!("error while setting up main event loop: {}", io),
+            )
+        })
+        .bail(9)?;
     let mut evs = Events::with_capacity(2);
 
     let main_waker = Arc::new(
         Waker::new(evloop.registry(), IGNITED_MAIN_THREAD_WAKE_TOKEN)
-            .map_err(|io| printable_error(
-                PROGRAM_NAME,
-                format!("error while setting up main waker: {}", io),
-            ))
-            .bail(9)?
+            .map_err(|io| {
+                printable_error(
+                    PROGRAM_NAME,
+                    format!("error while setting up main waker: {}", io),
+                )
+            })
+            .bail(9)?,
     );
 
     let udev = UdevListener::listen(&main_waker).bail(10)?;
@@ -314,22 +320,26 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     'main: loop {
         match evloop.poll(
             &mut evs,
-            config.sysconf().get_mount_timeout().map(Duration::from_secs),
+            config
+                .sysconf()
+                .get_mount_timeout()
+                .map(Duration::from_secs),
         ) {
             Ok(()) => {}
             Err(io) if io.kind() == ErrorKind::Interrupted => continue,
-            Err(io) => {
-                Err(io).map_err(|io| printable_error(
-                    PROGRAM_NAME,
-                    format!("error while setting up main event loop: {}", io),
-                ))
-                    .bail(9)?
-            }
+            Err(io) => Err(io)
+                .map_err(|io| {
+                    printable_error(
+                        PROGRAM_NAME,
+                        format!("error while setting up main event loop: {}", io),
+                    )
+                })
+                .bail(9)?,
         }
 
         for ev in evs.iter() {
             if ev.token() == IGNITED_MAIN_THREAD_WAKE_TOKEN {
-                break 'main
+                break 'main;
             }
         }
     }

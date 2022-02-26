@@ -41,9 +41,7 @@ impl Clone for KmsgFmt {
                 Err(_) => {
                     // Sleep and try again.
                     // TODO figure out how to kerr!() since kmsg is already open
-                    std::thread::sleep(
-                        std::time::Duration::from_secs(1)
-                    );
+                    std::thread::sleep(std::time::Duration::from_secs(1));
                 }
             }
         }

@@ -1,12 +1,18 @@
 //! (Linux) device manager based on `uevent` netlink socket.
 
+use crate::{early_logging::KConsole, PROGRAM_NAME};
 use kobject_uevent::{ActionType, UEvent};
 use mio::{Events, Interest, Poll, Token, Waker};
 use netlink_sys::{constants::NETLINK_KOBJECT_UEVENT, Socket, SocketAddr};
 use precisej_printable_errno::{printable_error, PrintableErrno};
-use std::{process::id as getpid, sync::{Arc, mpsc::{Sender, channel}}, thread::{self, JoinHandle}};
-use crate::{early_logging::KConsole, PROGRAM_NAME};
-
+use std::{
+    process::id as getpid,
+    sync::{
+        mpsc::{channel, Sender},
+        Arc,
+    },
+    thread::{self, JoinHandle},
+};
 
 /// udev thread event loop waker.
 const UDEV_THREAD_WAKE_TOKEN: Token = Token(20);
@@ -23,22 +29,29 @@ impl UdevListener {
         let (tx_udev_waker, rx_udev_waker) = channel();
 
         let handle = thread::spawn(move || Self::spawn(main_waker, tx_udev_waker));
-        let udev_waker = rx_udev_waker.recv().map_err(|e| printable_error(
-            PROGRAM_NAME,
-            format!("error while spawning udev thread: {}", e),
-        ))??;
+        let udev_waker = rx_udev_waker.recv().map_err(|e| {
+            printable_error(
+                PROGRAM_NAME,
+                format!("error while spawning udev thread: {}", e),
+            )
+        })??;
         Ok(UdevListener(handle, udev_waker))
     }
 
     /// Function called when the listener thread is spawned.
-    fn spawn(main_waker: Arc<Waker>, tx_udev_waker: Sender<Result<Arc<Waker>, PrintableErrno<String>>>) {
+    fn spawn(
+        main_waker: Arc<Waker>,
+        tx_udev_waker: Sender<Result<Arc<Waker>, PrintableErrno<String>>>,
+    ) {
         // KConsole has been successfully opened before, so this should never fail.
         let mut kcon = KConsole::new().unwrap();
 
-        let mut evloop = match Poll::new().map_err(|io| printable_error(
-            PROGRAM_NAME,
-            format!("error while setting up udev event loop: {}", io),
-        )) {
+        let mut evloop = match Poll::new().map_err(|io| {
+            printable_error(
+                PROGRAM_NAME,
+                format!("error while setting up udev event loop: {}", io),
+            )
+        }) {
             Ok(poll) => poll,
             Err(e) => {
                 let _ = tx_udev_waker.send(Err(e));
@@ -46,11 +59,12 @@ impl UdevListener {
             }
         };
         let mut evs = Events::with_capacity(3);
-        let udev_waker = match Waker::new(evloop.registry(), UDEV_THREAD_WAKE_TOKEN)
-            .map_err(|io| printable_error(
+        let udev_waker = match Waker::new(evloop.registry(), UDEV_THREAD_WAKE_TOKEN).map_err(|io| {
+            printable_error(
                 PROGRAM_NAME,
                 format!("error while setting up udev waker: {}", io),
-            )) {
+            )
+        }) {
             Ok(waker) => Arc::new(waker),
             Err(e) => {
                 let _ = tx_udev_waker.send(Err(e));
@@ -58,7 +72,7 @@ impl UdevListener {
             }
         };
         if tx_udev_waker.send(Ok(Arc::clone(&udev_waker))).is_err() {
-            return
+            return;
         };
         drop(tx_udev_waker);
 
@@ -68,17 +82,18 @@ impl UdevListener {
         let uevent_sa = SocketAddr::new(getpid(), 1);
         let mut uevent_buf = vec![0; 1024 * 8];
         uevent_socket.bind(&uevent_sa).unwrap();
-        evloop.registry().register(
-            &mut uevent_socket,
-            UDEV_THREAD_UEVENT_NL_TOKEN,
-            Interest::READABLE
-        ).unwrap();
+        evloop
+            .registry()
+            .register(
+                &mut uevent_socket,
+                UDEV_THREAD_UEVENT_NL_TOKEN,
+                Interest::READABLE,
+            )
+            .unwrap();
 
         loop {
             match evloop.poll(&mut evs, None) {
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
-                    continue
-                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 result => result.unwrap(),
             };
 
@@ -91,7 +106,7 @@ impl UdevListener {
                                 // EOF means closed netlink socket. We should return from
                                 // this thread
                                 quit_thread = true;
-                                continue
+                                continue;
                             }
                             result => result.unwrap(),
                         };
@@ -101,7 +116,7 @@ impl UdevListener {
                                 // Error means EOF, which means closed netlink socket. We
                                 // should return from this thread
                                 quit_thread = true;
-                                continue
+                                continue;
                             }
                         };
 
@@ -153,10 +168,12 @@ impl UdevListener {
 
     /// Stop the `uevent` listener, waiting until its thread is stopped.
     pub fn stop(self, kmsg: &mut KConsole) {
-        if let Err(e) = self.1.wake().map_err(|io| printable_error(
-            PROGRAM_NAME,
-            format!("FATAL: error while notifying udev to stop: {}", io),
-        )) {
+        if let Err(e) = self.1.wake().map_err(|io| {
+            printable_error(
+                PROGRAM_NAME,
+                format!("FATAL: error while notifying udev to stop: {}", io),
+            )
+        }) {
             kcrit!(kmsg, "{}", e);
         }
 
