@@ -170,8 +170,8 @@ impl<'a> IgnitedConfig<'a> {
     /// [ignited]
     /// mount-timeout = 120
     /// ```
-    pub fn get_mount_timeout(&self) -> Option<i64> {
-        self.0.mount_timeout.filter(|m| *m > 0)
+    pub fn get_mount_timeout(&self) -> Option<u64> {
+        self.0.mount_timeout.filter(|m| *m > 0).map(|m| m as u64)
     }
 }
 

@@ -111,6 +111,7 @@ mod early_logging;
 mod config;
 mod module;
 mod mount;
+mod udev;
 mod util;
 
 use crate::{
@@ -118,19 +119,23 @@ use crate::{
     early_logging::KConsole,
     module::ModAliases,
     mount::{Mount, TmpfsOpts},
+    udev::UdevListener,
     util::{get_booted_kernel_ver, make_shutdown_pivot_dir},
 };
 use cstr::cstr;
-use nix::mount::MsFlags;
-use nix::unistd::execv;
+use mio::{Events, Token, Poll, Waker};
+use nix::{mount::MsFlags, unistd::execv};
 use precisej_printable_errno::{
     printable_error, ErrnoResult, ExitError, ExitErrorResult, PrintableErrno, PrintableResult,
 };
-use std::hint::unreachable_unchecked;
 use std::{
     ffi::{CStr, OsStr},
+    hint::unreachable_unchecked,
+    io::ErrorKind,
     path::Path,
     process::id as getpid,
+    sync::Arc,
+    time::Duration,
 };
 
 /// The program is called `ignited`. The str referring to the program name is saved in
@@ -161,6 +166,9 @@ const IGNITED_CONFIG: &str = "/etc/ignited/engine.toml";
 ///
 /// See [ModAliases] for the structure of the file.
 const IGNITED_MODULE_ALIASES: &str = "/usr/lib/modules/ignited.alias";
+
+/// Ignited main thread event loop waker.
+const IGNITED_MAIN_THREAD_WAKE_TOKEN: Token = Token(10);
 
 /// Check to see if we are running as the `init` inside the initramfs.
 ///
@@ -284,6 +292,50 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     } else {
         kdebug!(kcon, "booted in bios/legacy mode");
     }
+
+    let mut evloop = Poll::new().map_err(|io| printable_error(
+        PROGRAM_NAME,
+        format!("error while setting up main event loop: {}", io),
+    )).bail(9)?;
+    let mut evs = Events::with_capacity(2);
+
+    let main_waker = Arc::new(
+        Waker::new(evloop.registry(), IGNITED_MAIN_THREAD_WAKE_TOKEN)
+            .map_err(|io| printable_error(
+                PROGRAM_NAME,
+                format!("error while setting up main waker: {}", io),
+            ))
+            .bail(9)?
+    );
+
+    let udev = UdevListener::listen(&main_waker).bail(10)?;
+    // TODO: sysfs walker
+
+    'main: loop {
+        match evloop.poll(
+            &mut evs,
+            config.sysconf().get_mount_timeout().map(Duration::from_secs),
+        ) {
+            Ok(()) => {}
+            Err(io) if io.kind() == ErrorKind::Interrupted => continue,
+            Err(io) => {
+                Err(io).map_err(|io| printable_error(
+                    PROGRAM_NAME,
+                    format!("error while setting up main event loop: {}", io),
+                ))
+                    .bail(9)?
+            }
+        }
+
+        for ev in evs.iter() {
+            if ev.token() == IGNITED_MAIN_THREAD_WAKE_TOKEN {
+                break 'main
+            }
+        }
+    }
+
+    udev.stop(kcon);
+    // TODO: sysfs walker
 
     // TODO: scan for devices, mount root, chroot & pivot, cleanup, ...
     let _ = aliases;
