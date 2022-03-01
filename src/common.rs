@@ -21,14 +21,14 @@ impl ThreadHandle {
     }
 
     /// Stop the thread and cleanup.
-    pub fn join_now(self, kmsg: &mut KConsole) {
+    pub fn join_now(self, kcon: &mut KConsole) {
         if let Err(e) = self.waker_t.wake().map_err(|io| {
             printable_error(
                 PROGRAM_NAME,
                 format!("FATAL: error while notifying {} to stop: {}", self.name, io),
             )
         }) {
-            kcrit!(kmsg, "{}", e);
+            kcrit!(kcon, "{}", e);
         }
 
         let _ = self.join_t.join();

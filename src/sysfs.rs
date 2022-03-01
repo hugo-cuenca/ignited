@@ -76,8 +76,8 @@ impl SysfsWalker {
     }
 
     /// Stop the `sysfs`-walking threads and cleanup.
-    pub fn stop(self, kmsg: &mut KConsole) {
-        self.block_t.join_now(kmsg);
-        self.modaliases_t.join_now(kmsg);
+    pub fn stop(self, kcon: &mut KConsole) {
+        self.block_t.join_now(kcon);
+        self.modaliases_t.join_now(kcon);
     }
 }

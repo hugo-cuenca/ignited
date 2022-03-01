@@ -175,7 +175,7 @@ impl UdevListener {
     }
 
     /// Stop the `uevent` listener and cleanup.
-    pub fn stop(self, kmsg: &mut KConsole) {
-        self.0.join_now(kmsg);
+    pub fn stop(self, kcon: &mut KConsole) {
+        self.0.join_now(kcon);
     }
 }
