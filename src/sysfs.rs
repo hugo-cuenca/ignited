@@ -36,6 +36,7 @@ mod walker {
     }
 }
 
+#[derive(Debug)]
 pub struct SysfsWalker {
     modaliases_t: ThreadHandle,
     block_t: ThreadHandle,

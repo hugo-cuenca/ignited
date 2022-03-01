@@ -157,6 +157,7 @@ mod listener {
 }
 
 /// `uevent` listener.
+#[derive(Debug)]
 pub struct UdevListener(ThreadHandle);
 impl UdevListener {
     /// Construct a new listener which will notify when `/system_root` is mounted.

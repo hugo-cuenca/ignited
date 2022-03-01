@@ -5,6 +5,7 @@ use mio::Waker;
 use precisej_printable_errno::printable_error;
 use std::{sync::Arc, thread::JoinHandle};
 
+#[derive(Debug)]
 pub struct ThreadHandle {
     name: &'static str,
     join_t: JoinHandle<()>,
