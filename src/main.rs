@@ -334,10 +334,10 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
                 .map_err(|io| {
                     printable_error(
                         PROGRAM_NAME,
-                        format!("error while setting up main event loop: {}", io),
+                        format!("error while running main event loop: {}", io),
                     )
                 })
-                .bail(9)?,
+                .bail(12)?,
         }
 
         for ev in evs.iter() {
