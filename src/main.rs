@@ -121,6 +121,7 @@ use crate::{
     early_logging::KConsole,
     module::ModAliases,
     mount::{Mount, TmpfsOpts},
+    sysfs::SysfsWalker,
     udev::UdevListener,
     util::{get_booted_kernel_ver, make_shutdown_pivot_dir},
 };
@@ -317,7 +318,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     );
 
     let udev = UdevListener::listen(&main_waker).bail(10)?;
-    // TODO: sysfs walker
+    let sysfs = SysfsWalker::walk(&main_waker).bail(11)?;
 
     'main: loop {
         match evloop.poll(
@@ -347,7 +348,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     }
 
     udev.stop(kcon);
-    // TODO: sysfs walker
+    sysfs.stop(kcon);
 
     // TODO: scan for devices, mount root, chroot & pivot, cleanup, ...
     let _ = aliases;
