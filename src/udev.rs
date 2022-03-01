@@ -161,7 +161,7 @@ mod listener {
 pub struct UdevListener(ThreadHandle);
 impl UdevListener {
     /// Construct a new listener which will notify when `/system_root` is mounted.
-    pub fn listen(main_waker: &Arc<Waker>) -> Result<UdevListener, PrintableErrno<String>> {
+    pub fn listen(main_waker: &Arc<Waker>) -> Result<Self, PrintableErrno<String>> {
         let main_waker = Arc::clone(main_waker);
         let (tx_udev_waker, rx_udev_waker) = channel();
 
@@ -172,7 +172,7 @@ impl UdevListener {
                 format!("error while spawning udev thread: {}", e),
             )
         })??;
-        Ok(UdevListener(ThreadHandle::new("udev", handle, udev_waker)))
+        Ok(Self(ThreadHandle::new("udev", handle, udev_waker)))
     }
 
     /// Stop the `uevent` listener and cleanup.

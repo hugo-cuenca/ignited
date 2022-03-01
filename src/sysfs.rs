@@ -43,7 +43,7 @@ pub struct SysfsWalker {
 }
 impl SysfsWalker {
     /// Construct the `sysfs`-walking threads which will notify when `/system_root` is mounted.
-    pub fn walk(main_waker: &Arc<Waker>) -> Result<SysfsWalker, PrintableErrno<String>> {
+    pub fn walk(main_waker: &Arc<Waker>) -> Result<Self, PrintableErrno<String>> {
         let modaliases_t = {
             let main_waker_cl = Arc::clone(main_waker);
             let (tx_mod_waker, rx_mod_waker) = channel();

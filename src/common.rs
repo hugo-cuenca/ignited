@@ -13,8 +13,8 @@ pub struct ThreadHandle {
 }
 impl ThreadHandle {
     /// Construct a new thread.
-    pub fn new(name: &'static str, join_t: JoinHandle<()>, waker_t: Arc<Waker>) -> ThreadHandle {
-        ThreadHandle {
+    pub fn new(name: &'static str, join_t: JoinHandle<()>, waker_t: Arc<Waker>) -> Self {
+        Self {
             name,
             join_t,
             waker_t,
