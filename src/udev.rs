@@ -1,17 +1,11 @@
 //! (Linux) device manager based on `uevent` netlink socket.
 
 use crate::{common::ThreadHandle, early_logging::KConsole, PROGRAM_NAME};
-use kobject_uevent::{ActionType, UEvent};
-use mio::{Events, Interest, Poll, Token, Waker};
-use netlink_sys::{constants::NETLINK_KOBJECT_UEVENT, Socket, SocketAddr};
+use mio::{Token, Waker};
 use precisej_printable_errno::{printable_error, PrintableErrno};
 use std::{
-    process::id as getpid,
-    sync::{
-        mpsc::{channel, Sender},
-        Arc,
-    },
-    thread::{self, JoinHandle},
+    sync::{mpsc::channel, Arc},
+    thread,
 };
 
 /// udev thread event loop waker.
@@ -20,26 +14,21 @@ const UDEV_THREAD_WAKE_TOKEN: Token = Token(20);
 /// udev thread `uevent` netlink socket.
 const UDEV_THREAD_UEVENT_NL_TOKEN: Token = Token(21);
 
-/// `uevent` listener.
-pub struct UdevListener(ThreadHandle);
-impl UdevListener {
-    /// Construct a new listener which will notify when `/system_root` is mounted.
-    pub fn listen(main_waker: &Arc<Waker>) -> Result<UdevListener, PrintableErrno<String>> {
-        let main_waker = Arc::clone(main_waker);
-        let (tx_udev_waker, rx_udev_waker) = channel();
-
-        let handle = thread::spawn(move || Self::spawn(main_waker, tx_udev_waker));
-        let udev_waker = rx_udev_waker.recv().map_err(|e| {
-            printable_error(
-                PROGRAM_NAME,
-                format!("error while spawning udev thread: {}", e),
-            )
-        })??;
-        Ok(UdevListener(ThreadHandle::new("udev", handle, udev_waker)))
-    }
+mod listener {
+    use super::{UDEV_THREAD_UEVENT_NL_TOKEN, UDEV_THREAD_WAKE_TOKEN};
+    use crate::{early_logging::KConsole, PROGRAM_NAME};
+    use kobject_uevent::{ActionType, UEvent};
+    use mio::{Events, Interest, Poll, Waker};
+    use netlink_sys::{protocols::NETLINK_KOBJECT_UEVENT, Socket, SocketAddr};
+    use precisej_printable_errno::{printable_error, PrintableErrno};
+    use std::{
+        process::id as getpid,
+        sync::{mpsc::Sender, Arc},
+        thread,
+    };
 
     /// Function called when the listener thread is spawned.
-    fn spawn(
+    pub(super) fn spawn(
         main_waker: Arc<Waker>,
         tx_udev_waker: Sender<Result<Arc<Waker>, PrintableErrno<String>>>,
     ) {
@@ -124,7 +113,7 @@ impl UdevListener {
 
                         // spawn thread for each uevent
                         let main_waker = Arc::clone(&main_waker);
-                        thread::spawn(move || Self::handle_uevent(main_waker, uevent));
+                        thread::spawn(move || handle_uevent(main_waker, uevent));
                     }
                     UDEV_THREAD_WAKE_TOKEN => {
                         // root is already mounted, we can exit
@@ -144,11 +133,11 @@ impl UdevListener {
         let mut kcon = KConsole::new().unwrap();
 
         if let Some(modalias) = uevent.env.get("MODALIAS") {
-            Self::handle_uevent_load_modalias(&mut kcon, modalias);
+            handle_uevent_load_modalias(&mut kcon, modalias);
         } else if uevent.subsystem == "block" {
-            Self::handle_uevent_block_device(&mut kcon, uevent);
+            handle_uevent_block_device(&mut kcon, uevent);
         } else if uevent.subsystem == "net" {
-            Self::handle_uevent_network(&mut kcon, uevent);
+            handle_uevent_network(&mut kcon, uevent);
         } else if uevent.subsystem == "hidraw" && uevent.action == ActionType::Add {
             todo!();
         }
@@ -164,6 +153,25 @@ impl UdevListener {
 
     fn handle_uevent_network(kcon: &mut KConsole, uevent: UEvent) {
         todo!()
+    }
+}
+
+/// `uevent` listener.
+pub struct UdevListener(ThreadHandle);
+impl UdevListener {
+    /// Construct a new listener which will notify when `/system_root` is mounted.
+    pub fn listen(main_waker: &Arc<Waker>) -> Result<UdevListener, PrintableErrno<String>> {
+        let main_waker = Arc::clone(main_waker);
+        let (tx_udev_waker, rx_udev_waker) = channel();
+
+        let handle = thread::spawn(move || listener::spawn(main_waker, tx_udev_waker));
+        let udev_waker = rx_udev_waker.recv().map_err(|e| {
+            printable_error(
+                PROGRAM_NAME,
+                format!("error while spawning udev thread: {}", e),
+            )
+        })??;
+        Ok(UdevListener(ThreadHandle::new("udev", handle, udev_waker)))
     }
 
     /// Stop the `uevent` listener and cleanup.
