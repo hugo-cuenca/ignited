@@ -108,9 +108,11 @@
 #[macro_use]
 mod early_logging;
 
+mod common;
 mod config;
 mod module;
 mod mount;
+mod sysfs;
 mod udev;
 mod util;
 

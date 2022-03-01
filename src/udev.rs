@@ -1,6 +1,6 @@
 //! (Linux) device manager based on `uevent` netlink socket.
 
-use crate::{early_logging::KConsole, PROGRAM_NAME};
+use crate::{common::ThreadHandle, early_logging::KConsole, PROGRAM_NAME};
 use kobject_uevent::{ActionType, UEvent};
 use mio::{Events, Interest, Poll, Token, Waker};
 use netlink_sys::{constants::NETLINK_KOBJECT_UEVENT, Socket, SocketAddr};
@@ -21,7 +21,7 @@ const UDEV_THREAD_WAKE_TOKEN: Token = Token(20);
 const UDEV_THREAD_UEVENT_NL_TOKEN: Token = Token(21);
 
 /// `uevent` listener.
-pub struct UdevListener(JoinHandle<()>, Arc<Waker>);
+pub struct UdevListener(ThreadHandle);
 impl UdevListener {
     /// Construct a new listener which will notify when `/system_root` is mounted.
     pub fn listen(main_waker: &Arc<Waker>) -> Result<UdevListener, PrintableErrno<String>> {
@@ -35,7 +35,7 @@ impl UdevListener {
                 format!("error while spawning udev thread: {}", e),
             )
         })??;
-        Ok(UdevListener(handle, udev_waker))
+        Ok(UdevListener(ThreadHandle::new("udev", handle, udev_waker)))
     }
 
     /// Function called when the listener thread is spawned.
@@ -166,17 +166,8 @@ impl UdevListener {
         todo!()
     }
 
-    /// Stop the `uevent` listener, waiting until its thread is stopped.
+    /// Stop the `uevent` listener and cleanup.
     pub fn stop(self, kmsg: &mut KConsole) {
-        if let Err(e) = self.1.wake().map_err(|io| {
-            printable_error(
-                PROGRAM_NAME,
-                format!("FATAL: error while notifying udev to stop: {}", io),
-            )
-        }) {
-            kcrit!(kmsg, "{}", e);
-        }
-
-        let _ = self.0.join();
+        self.0.join_now(kmsg);
     }
 }
