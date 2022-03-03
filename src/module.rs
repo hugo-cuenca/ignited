@@ -146,14 +146,15 @@ impl ModParams {
 
 // Inner struct containing ModuleLoading's fields. Meant to be guarded by a mutex.
 #[derive(Debug, Default)]
-struct ModuleLoadingInner {
+struct ModLoadingInner {
     loaded: BTreeMap<String, ()>,
     loading: BTreeMap<String, Vec<WaitGroup>>,
 }
 
 /// (Kernel) module loading WaitGroup.
-pub struct ModuleWg(WaitGroup);
-impl ModuleWg {
+pub struct ModWg(WaitGroup);
+impl ModWg {
+    /// Wait for kernel modules to finish loading.
     pub fn wait(self) {
         self.0.wait()
     }
@@ -161,35 +162,35 @@ impl ModuleWg {
 
 /// (Kernel) module loading and bookkeeping: records already loaded modules.
 #[derive(Debug, Clone)]
-pub struct ModuleLoading {
-    bookkeeping: Arc<Mutex<ModuleLoadingInner>>,
+pub struct ModLoading {
+    bookkeeping: Arc<Mutex<ModLoadingInner>>,
     config: Arc<RuntimeConfig>,
     args: Arc<CmdlineArgs>,
 }
-impl ModuleLoading {
+impl ModLoading {
     /// Build a new instance of this struct. This should only be called once.
     pub fn new(config: &Arc<RuntimeConfig>, args: &Arc<CmdlineArgs>) -> Self {
         Self {
-            bookkeeping: Arc::new(Mutex::new(ModuleLoadingInner::default())),
+            bookkeeping: Arc::new(Mutex::new(ModLoadingInner::default())),
             config: Arc::clone(config),
             args: Arc::clone(args),
         }
     }
 
     /// Load the specified (kernel) modules.
-    pub fn load_modules(&self, modules: &[String]) -> Result<ModuleWg, PrintableErrno<String>> {
+    pub fn load_modules(&self, modules: &[String]) -> Result<ModWg, PrintableErrno<String>> {
         let wg = WaitGroup::new();
         let mut unlocked = self.bookkeeping.lock().map_err(|_| {
             printable_error(PROGRAM_NAME, "unable to lock module-loading".to_string())
         })?;
         self.load_modules_unlocked(modules, &wg, unlocked.deref_mut())?;
-        Ok(ModuleWg(wg))
+        Ok(ModWg(wg))
     }
     fn load_modules_unlocked(
         &self,
         modules: &'_ [String],
         wg: &WaitGroup,
-        unlocked: &mut ModuleLoadingInner,
+        unlocked: &mut ModLoadingInner,
     ) -> Result<(), PrintableErrno<String>> {
         for module in modules {
             if unlocked.loaded.contains_key(module)

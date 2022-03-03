@@ -119,7 +119,7 @@ mod util;
 use crate::{
     config::{CmdlineArgs, InitramfsMetadata, RuntimeConfig},
     early_logging::KConsole,
-    module::ModAliases,
+    module::{ModAliases, ModLoading},
     mount::{Mount, TmpfsOpts},
     sysfs::SysfsWalker,
     udev::UdevListener,
@@ -301,6 +301,8 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
         kdebug!(kcon, "booted in bios/legacy mode");
     }
 
+    let mod_loading = ModLoading::new(&config, &args);
+
     let mut evloop = Poll::new()
         .map_err(|io| {
             printable_error(
@@ -323,7 +325,9 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     );
 
     let udev = UdevListener::listen(&main_waker).bail(10)?;
-    let sysfs = SysfsWalker::walk(&main_waker).bail(11)?;
+    let mod_loaded = mod_loading.load_modules(config.sysconf().get_force_modules()).bail(11)?;
+    // TODO: configure virtual console
+    let sysfs = SysfsWalker::walk(&main_waker).bail(12)?;
 
     'main: loop {
         match evloop.poll(
@@ -342,7 +346,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
                         format!("error while running main event loop: {}", io),
                     )
                 })
-                .bail(12)?,
+                .bail(13)?,
         }
 
         for ev in evs.iter() {
@@ -355,7 +359,9 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     udev.stop(kcon);
     sysfs.stop(kcon);
 
-    // TODO: scan for devices, mount root, chroot & pivot, cleanup, ...
+    mod_loaded.wait();
+
+    // TODO: chroot & pivot, cleanup, ...
     let _ = aliases;
 
     execv(args.init(), &[args.init()])
