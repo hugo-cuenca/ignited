@@ -170,6 +170,11 @@ const IGNITED_CONFIG: &str = "/etc/ignited/engine.toml";
 /// See [ModAliases] for the structure of the file.
 const IGNITED_MODULE_ALIASES: &str = "/usr/lib/modules/ignited.alias";
 
+/// Path where `ignited`'s (kernel) modules are located.
+///
+/// See [ModAliases] for the structure of the file.
+const IGNITED_KERN_MODULES: &str = "/usr/lib/modules";
+
 /// Ignited main thread event loop waker.
 const IGNITED_MAIN_THREAD_WAKE_TOKEN: Token = Token(10);
 
@@ -283,13 +288,13 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
 
     std::env::set_var("PATH", OsStr::new("/usr/sbin:/usr/bin:/sbin:/bin")); // Panics on error
 
-    let config = RuntimeConfig::try_from(Path::new(IGNITED_CONFIG)).bail(4)?;
+    let config = Arc::new(RuntimeConfig::try_from(Path::new(IGNITED_CONFIG)).bail(4)?);
     kernel_ver_check(config.metadata()).bail(5)?;
 
     let aliases = ModAliases::try_from(Path::new(IGNITED_MODULE_ALIASES)).bail(6)?;
     make_shutdown_pivot_dir().bail(7)?;
 
-    let args = CmdlineArgs::parse_current(kcon).bail(8)?;
+    let args = Arc::new(CmdlineArgs::parse_current(kcon).bail(8)?);
     if efi_mode {
         kdebug!(kcon, "booted in efi mode");
     } else {

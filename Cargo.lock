@@ -52,6 +52,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-utils"
+version = "0.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5e5bed1f1c269533fa816a0a5492b3545209a205ca1a54842be180eb63a16a6"
+dependencies = [
+ "cfg-if",
+ "lazy_static",
+]
+
+[[package]]
 name = "cstr"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -66,6 +76,7 @@ name = "ignited"
 version = "0.0.0"
 dependencies = [
  "compiled-uuid",
+ "crossbeam-utils",
  "cstr",
  "kobject-uevent",
  "mio",
@@ -85,6 +96,12 @@ checksum = "c182ec3a1c7ebe51035748dba3a0dec2597d102a005cd7890f3bcd6b0023160d"
 dependencies = [
  "anyhow",
 ]
+
+[[package]]
+name = "lazy_static"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
