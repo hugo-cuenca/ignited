@@ -255,18 +255,23 @@ fn main() {
 
 /// Here is where it actually begins.
 ///
-/// - Mount `/sys`.
-/// - Mount `/proc`.
-/// - Mount `/run`.
+/// - Mount `/sys`, `/proc`, and `/run` in that order.
 /// - If in EFI mode, mount `/sys/firmware/efi/efivars`.
 /// - Set path to a sensible default: `/usr/sbin:/usr/bin:/sbin:/bin`.
-/// - Read the current [RuntimeConfig].
-/// - Read the current [ModAliases].
+/// - Read the current [RuntimeConfig] and [ModAliases].
 /// - Parse command line arguments.
 /// - Create the `/run/initramfs` directory as per
 ///   [systemd's INITRD_INTERFACE](https://systemd.io/INITRD_INTERFACE/).
-///
-/// TODO: add more
+/// - Listen to udev events helpful to finding and mounting the root
+///   partition at `/system_root`.
+/// - Load required modules.
+/// - Walk the `sysfs` filesystem to attempt to find and mount the root
+///   partition at `/system_root`.
+/// - Wait (optionally with a timeout) until the target root filesystem is
+///   mounted properly at `/system_root`.
+/// - Switch to the target root filesystem.
+/// - Transition to the target's init executable at [INIT_DEFAULT_PATH]
+///   (usually `/sbin/init`).
 fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     // Commence ignition
     Mount::Sysfs.mount().bail(3)?;
