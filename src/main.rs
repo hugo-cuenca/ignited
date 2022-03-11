@@ -113,6 +113,7 @@ mod config;
 mod module;
 mod mount;
 mod sysfs;
+mod time;
 mod udev;
 mod util;
 
@@ -122,6 +123,7 @@ use crate::{
     module::{ModAliases, ModLoading},
     mount::{Mount, TmpfsOpts},
     sysfs::SysfsWalker,
+    time::InitramfsTimer,
     udev::UdevListener,
     util::{get_booted_kernel_ver, make_shutdown_pivot_dir},
 };
@@ -244,10 +246,15 @@ fn kernel_ver_check(config: InitramfsMetadata) -> Result<(), PrintableErrno<Stri
 /// The entry point of the program. This function is in charge of exiting with an error
 /// code when [init] returns an [ExitError].
 fn main() {
+    // immediately start timer
+    let timer = InitramfsTimer::start();
+
     initial_sanity_check().bail(1).unwrap_or_eprint_exit();
     let mut kcon = initialize_kcon().bail(2).unwrap_or_eprint_exit();
 
-    if let Err(e) = init(&mut kcon) {
+    // Note that, although KConsole is open, no logging level is set yet.
+    // Wait until it's set (with CmdlineArgs::parse_current) before logging...
+    if let Err(e) = init(&mut kcon, timer) {
         kcrit!(kcon, "{}", &e);
         e.eprint_and_exit()
     }
@@ -272,7 +279,7 @@ fn main() {
 /// - Switch to the target root filesystem.
 /// - Transition to the target's init executable at [INIT_DEFAULT_PATH]
 ///   (usually `/sbin/init`).
-fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
+fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<String>> {
     // Commence ignition
     Mount::Sysfs.mount().bail(3)?;
     Mount::Proc.mount().bail(3)?;
@@ -300,6 +307,9 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
     make_shutdown_pivot_dir().bail(7)?;
 
     let args = Arc::new(CmdlineArgs::parse_current(kcon).bail(8)?);
+
+    // KConsole logging level is now set, start logging here.
+    timer.log(kcon);
     if efi_mode {
         kdebug!(kcon, "booted in efi mode");
     } else {
@@ -366,7 +376,7 @@ fn init(kcon: &mut KConsole) -> Result<(), ExitError<String>> {
 
     mod_loaded.wait();
 
-    // TODO: chroot & pivot, cleanup, ...
+    // TODO: chroot & pivot, cleanup, timer, ...
     let _ = aliases;
 
     execv(args.init(), &[args.init()])
