@@ -125,11 +125,11 @@ use crate::{
     sysfs::SysfsWalker,
     time::InitramfsTimer,
     udev::UdevListener,
-    util::{get_booted_kernel_ver, make_shutdown_pivot_dir},
+    util::{get_booted_kernel_ver, make_shutdown_pivot_dir, spawn_emergency_shell},
 };
 use cstr::cstr;
 use mio::{Events, Poll, Token, Waker};
-use nix::{mount::MsFlags, unistd::execv};
+use nix::{mount::MsFlags, unistd::{execv, sync}};
 use precisej_printable_errno::{
     printable_error, ErrnoResult, ExitError, ExitErrorResult, PrintableErrno, PrintableResult,
 };
@@ -256,6 +256,11 @@ fn main() {
     // Wait until it's set (with CmdlineArgs::parse_current) before logging...
     if let Err(e) = init(&mut kcon, timer) {
         kcrit!(kcon, "{}", &e);
+        spawn_emergency_shell(&mut kcon).unwrap_err();
+        kcrit!(kcon, "unable to spawn emergency shell");
+        kcrit!(kcon, "syncing disks");
+        sync();
+        kcrit!(kcon, "finished syncing disks, kernel will panic on exit");
         e.eprint_and_exit()
     }
 }
