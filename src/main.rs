@@ -131,7 +131,10 @@ use crate::{
 };
 use cstr::cstr;
 use mio::{Events, Poll, Token, Waker};
-use nix::{mount::MsFlags, unistd::{execv, sync}};
+use nix::{
+    mount::MsFlags,
+    unistd::{execv, sync},
+};
 use precisej_printable_errno::{
     printable_error, ErrnoResult, ExitError, ExitErrorResult, PrintableErrno, PrintableResult,
 };
@@ -347,7 +350,9 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
     );
 
     let udev = UdevListener::listen(&main_waker).bail(10)?;
-    let mod_loaded = mod_loading.load_modules(config.sysconf().get_force_modules()).bail(11)?;
+    let mod_loaded = mod_loading
+        .load_modules(config.sysconf().get_force_modules())
+        .bail(11)?;
     setup_vconsole(kcon, &config).bail(12)?;
     let sysfs = SysfsWalker::walk(&main_waker).bail(13)?;
 
