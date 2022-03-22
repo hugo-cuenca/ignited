@@ -145,7 +145,7 @@ use std::{
     path::Path,
     process::id as getpid,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// The program is called `ignited`. The str referring to the program name is saved in
@@ -356,24 +356,50 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
     setup_vconsole(kcon, &config).bail(12)?;
     let sysfs = SysfsWalker::walk(&main_waker).bail(13)?;
 
-    'main: loop {
-        match evloop.poll(
-            &mut evs,
-            config
-                .sysconf()
-                .get_mount_timeout()
-                .map(Duration::from_secs),
-        ) {
-            Ok(()) => {}
-            Err(io) if io.kind() == ErrorKind::Interrupted => continue,
-            Err(io) => Err(io)
-                .map_err(|io| {
-                    printable_error(
+    #[inline(always)]
+    fn calculate_timeout(
+        start: Instant,
+        now: Instant,
+        timeout: Option<Duration>,
+    ) -> Result<Option<Duration>, PrintableErrno<&'static str>> {
+        match timeout {
+            timeout if start == now => Ok(timeout),
+            Some(timeout) => {
+                let elapsed = start - now;
+                if elapsed > timeout {
+                    return Err(printable_error(
                         PROGRAM_NAME,
-                        format!("error while running main event loop: {}", io),
-                    )
-                })
-                .bail(14)?,
+                        "timeout waiting for root filesystem",
+                    ));
+                }
+                Ok(Some(timeout - elapsed))
+            }
+            None => Ok(None),
+        }
+    }
+    let start = Instant::now();
+    let mut now = start; // Instant is Copy
+    let timeout = config
+        .sysconf()
+        .get_mount_timeout()
+        .map(Duration::from_secs);
+    'main: loop {
+        match evloop.poll(&mut evs, calculate_timeout(start, now, timeout).bail(14)?) {
+            Ok(()) => {}
+            Err(io) if io.kind() == ErrorKind::Interrupted => {
+                now = Instant::now();
+                continue;
+            }
+            Err(io) => {
+                return Err(io)
+                    .map_err(|io| {
+                        printable_error(
+                            PROGRAM_NAME,
+                            format!("error while running main event loop: {}", io),
+                        )
+                    })
+                    .bail(14)
+            }
         }
 
         for ev in evs.iter() {
@@ -381,6 +407,7 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
                 break 'main;
             }
         }
+        now = Instant::now();
     }
 
     udev.stop(kcon);
