@@ -116,6 +116,7 @@ mod sysfs;
 mod time;
 mod udev;
 mod util;
+mod vconsole;
 
 use crate::{
     config::{CmdlineArgs, InitramfsMetadata, RuntimeConfig},
@@ -126,6 +127,7 @@ use crate::{
     time::InitramfsTimer,
     udev::UdevListener,
     util::{get_booted_kernel_ver, make_shutdown_pivot_dir, spawn_emergency_shell},
+    vconsole::setup_vconsole,
 };
 use cstr::cstr;
 use mio::{Events, Poll, Token, Waker};
@@ -346,8 +348,8 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
 
     let udev = UdevListener::listen(&main_waker).bail(10)?;
     let mod_loaded = mod_loading.load_modules(config.sysconf().get_force_modules()).bail(11)?;
-    // TODO: configure virtual console
-    let sysfs = SysfsWalker::walk(&main_waker).bail(12)?;
+    setup_vconsole(kcon, &config).bail(12)?;
+    let sysfs = SysfsWalker::walk(&main_waker).bail(13)?;
 
     'main: loop {
         match evloop.poll(
@@ -366,7 +368,7 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
                         format!("error while running main event loop: {}", io),
                     )
                 })
-                .bail(13)?,
+                .bail(14)?,
         }
 
         for ev in evs.iter() {

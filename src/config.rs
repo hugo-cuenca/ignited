@@ -182,16 +182,16 @@ struct ConsoleConfigDe {
     utf: bool,
 
     #[serde(rename = "font-file")]
-    font_file_p: String,
+    font_file_p: Option<String>,
 
     #[serde(rename = "font-map-file")]
-    font_map_file_p: String,
+    font_map_file_p: Option<String>,
 
     #[serde(rename = "font-unicode-file")]
-    font_unicode_file_p: String,
+    font_unicode_file_p: Option<String>,
 
     #[serde(rename = "keymap-file")]
-    keymap_file_p: String,
+    keymap_file_p: Option<String>,
 }
 
 /// \[console] section.
@@ -227,8 +227,8 @@ impl<'a> ConsoleConfig<'a> {
     /// [console]
     /// font-file = "/usr/share/kbd/consolefonts/LatArCyrHeb-19.psfu.gz"
     /// ```
-    pub fn font_file(&'_ self) -> &'_ str {
-        &self.0.font_file_p[..]
+    pub fn font_file(&'_ self) -> Option<&'_ str> {
+        self.0.font_file_p.as_deref()
     }
 
     /// (String) Path to console font map
@@ -237,8 +237,8 @@ impl<'a> ConsoleConfig<'a> {
     /// [console]
     /// font-map-file = "/usr/share/kbd/consoletrans/viscii1.0_to_tcvn.trans"
     /// ```
-    pub fn font_map_file(&'_ self) -> &'_ str {
-        &self.0.font_map_file_p[..]
+    pub fn font_map_file(&'_ self) -> Option<&'_ str> {
+        self.0.font_map_file_p.as_deref()
     }
 
     /// (String) Path to console font unicode map
@@ -247,8 +247,8 @@ impl<'a> ConsoleConfig<'a> {
     /// [console]
     /// font-unicode-file = "/usr/share/kbd/unimaps/iso01.uni"
     /// ```
-    pub fn font_unicode_file(&'_ self) -> &'_ str {
-        &self.0.font_unicode_file_p[..]
+    pub fn font_unicode_file(&'_ self) -> Option<&'_ str> {
+        self.0.font_unicode_file_p.as_deref()
     }
 
     /// (String) Path to console keymap
@@ -257,8 +257,8 @@ impl<'a> ConsoleConfig<'a> {
     /// [console]
     /// font-unicode-file = "/usr/share/kbd/keymaps/i386/dvorak/dvorak-programmer.map.gz"
     /// ```
-    pub fn keymap_file(&'_ self) -> &'_ str {
-        &self.0.keymap_file_p[..]
+    pub fn keymap_file(&'_ self) -> Option<&'_ str> {
+        self.0.keymap_file_p.as_deref()
     }
 }
 
