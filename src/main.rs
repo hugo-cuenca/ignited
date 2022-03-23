@@ -290,6 +290,28 @@ fn main() {
 /// - Transition to the target's init executable at [INIT_DEFAULT_PATH]
 ///   (usually `/sbin/init`).
 fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<String>> {
+    #[inline(always)]
+    fn calculate_evloop_timeout(
+        start: Instant,
+        now: Instant,
+        timeout: Option<Duration>,
+    ) -> Result<Option<Duration>, PrintableErrno<&'static str>> {
+        match timeout {
+            timeout if start == now => Ok(timeout),
+            Some(timeout) => {
+                let elapsed = start - now;
+                if elapsed > timeout {
+                    return Err(printable_error(
+                        PROGRAM_NAME,
+                        "timeout waiting for root filesystem",
+                    ));
+                }
+                Ok(Some(timeout - elapsed))
+            }
+            None => Ok(None),
+        }
+    }
+
     // Commence ignition
     Mount::Sysfs.mount().bail(3)?;
     Mount::Proc.mount().bail(3)?;
@@ -356,27 +378,6 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
     setup_vconsole(kcon, &config).bail(12)?;
     let sysfs = SysfsWalker::walk(&main_waker).bail(13)?;
 
-    #[inline(always)]
-    fn calculate_timeout(
-        start: Instant,
-        now: Instant,
-        timeout: Option<Duration>,
-    ) -> Result<Option<Duration>, PrintableErrno<&'static str>> {
-        match timeout {
-            timeout if start == now => Ok(timeout),
-            Some(timeout) => {
-                let elapsed = start - now;
-                if elapsed > timeout {
-                    return Err(printable_error(
-                        PROGRAM_NAME,
-                        "timeout waiting for root filesystem",
-                    ));
-                }
-                Ok(Some(timeout - elapsed))
-            }
-            None => Ok(None),
-        }
-    }
     let start = Instant::now();
     let mut now = start; // Instant is Copy
     let timeout = config
@@ -384,7 +385,7 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
         .get_mount_timeout()
         .map(Duration::from_secs);
     'main: loop {
-        match evloop.poll(&mut evs, calculate_timeout(start, now, timeout).bail(14)?) {
+        match evloop.poll(&mut evs, calculate_evloop_timeout(start, now, timeout).bail(14)?) {
             Ok(()) => {}
             Err(io) if io.kind() == ErrorKind::Interrupted => {
                 now = Instant::now();
