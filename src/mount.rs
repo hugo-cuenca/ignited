@@ -1,9 +1,9 @@
 //! Mount options for filesystems.
 
-use crate::{KConsole, PROGRAM_NAME};
+use crate::{IGNITED_TARGET_ROOT_PATH, KConsole, PROGRAM_NAME};
 use nix::{
     errno::Errno,
-    mount::{mount, MsFlags},
+    mount::{mount, umount2, MntFlags, MsFlags},
     sys::stat::Mode,
     unistd::mkdir,
 };
@@ -567,8 +567,56 @@ impl Mount {
         )
         .printable(
             PROGRAM_NAME,
-            format!("FATAL: unable to mount {}", target.to_string_lossy()),
+            format!("unable to mount {}", target.to_string_lossy()),
         )?;
         Ok(())
+    }
+
+    /// Move specified mount points to [`/system_root`][IGNITED_TARGET_ROOT_PATH].
+    pub fn move_mount<S: AsRef<str>>(
+        kcon: &mut KConsole,
+        mounts: impl IntoIterator<Item = S>,
+    ) -> Result<(), PrintableErrno<String>> {
+        for mount_str in mounts {
+            let mount_str = mount_str.as_ref();
+            let mount_path_target = PathBuf::from(format!("{}{}", IGNITED_TARGET_ROOT_PATH, mount_str));
+            if !mount_path_target.exists() {
+                kwarn!(kcon, "{} doesn't exist at the newly mounted filesystem", mount_str);
+
+                umount2(mount_str, MntFlags::MNT_DETACH)
+                    .printable(
+                        PROGRAM_NAME,
+                        format!("unable to unmount {}", mount_str)
+                    )?;
+            } else {
+                mount(
+                    Some(mount_str),
+                    &mount_path_target,
+                    None::<&str>,
+                    MsFlags::MS_MOVE,
+                    None::<&str>,
+                )
+                .printable(
+                    PROGRAM_NAME,
+                    format!("unable to remount {} in {}", mount_str, IGNITED_TARGET_ROOT_PATH)
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Move mount at `.` to `/`.
+    pub fn move_mount_currdir() -> Result<(), PrintableErrno<String>> {
+        mount(
+            Some("."),
+            "/",
+            None::<&str>,
+            MsFlags::MS_MOVE,
+            None::<&str>,
+        )
+        .printable(
+            PROGRAM_NAME,
+            format!("unable to remount {} in /", IGNITED_TARGET_ROOT_PATH)
+        )
     }
 }

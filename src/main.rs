@@ -126,24 +126,32 @@ use crate::{
     sysfs::SysfsWalker,
     time::InitramfsTimer,
     udev::UdevListener,
-    util::{get_booted_kernel_ver, make_shutdown_pivot_dir, spawn_emergency_shell},
+    util::{
+        delete_ramfs,
+        get_booted_kernel_ver,
+        get_systemd_state,
+        initial_sanity_check,
+        is_systemd_compatible,
+        make_shutdown_pivot_dir,
+        spawn_emergency_shell
+    },
     vconsole::setup_vconsole,
 };
 use cstr::cstr;
 use mio::{Events, Poll, Token, Waker};
 use nix::{
     mount::MsFlags,
-    unistd::{execv, sync},
+    unistd::{chdir, chroot, execv, sync},
 };
 use precisej_printable_errno::{
     printable_error, ErrnoResult, ExitError, ExitErrorResult, PrintableErrno, PrintableResult,
 };
 use std::{
-    ffi::{CStr, OsStr},
+    ffi::{CStr, CString, OsStr},
     hint::unreachable_unchecked,
     io::ErrorKind,
+    os::unix::io::IntoRawFd,
     path::Path,
-    process::id as getpid,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -172,47 +180,21 @@ const INIT_ERROR: &str = "unable to execute init";
 /// See [RuntimeConfig] for the structure of the TOML file.
 const IGNITED_CONFIG: &str = "/etc/ignited/engine.toml";
 
-/// Path where `ignited`'s module aliases file is located.
-///
-/// See [ModAliases] for the structure of the file.
-const IGNITED_MODULE_ALIASES: &str = "/usr/lib/modules/ignited.alias";
-
 /// Path where `ignited`'s (kernel) modules are located.
 ///
 /// See [ModAliases] for the structure of the file.
 const IGNITED_KERN_MODULES: &str = "/usr/lib/modules";
 
+/// Path where `ignited`'s module aliases file is located.
+///
+/// See [ModAliases] for the structure of the file.
+const IGNITED_MODULE_ALIASES: &str = "/usr/lib/modules/ignited.alias";
+
+/// Path where the target root partition is mounted.
+const IGNITED_TARGET_ROOT_PATH: &str = "/system_root";
+
 /// Ignited main thread event loop waker.
 const IGNITED_MAIN_THREAD_WAKE_TOKEN: Token = Token(10);
-
-/// Check to see if we are running as the `init` inside the initramfs.
-///
-/// - Make sure we are PID 1.
-/// - Check for the existence of `/etc/initrd-release` (see
-/// [INITRD_INTERFACE](https://systemd.io/INITRD_INTERFACE/)).
-fn initial_sanity_check() -> Result<(), PrintableErrno<String>> {
-    // We must be the initramfs' PID1
-    (getpid() == 1).then(|| ()).ok_or_else(|| {
-        printable_error(
-            PROGRAM_NAME,
-            "not running in an initrd environment, exiting...",
-        )
-    })?;
-
-    // Per https://systemd.io/INITRD_INTERFACE/, we should only run if /etc/initrd-release
-    // is present
-    Path::new("/etc/initrd-release")
-        .exists()
-        .then(|| ())
-        .ok_or_else(|| {
-            printable_error(
-                PROGRAM_NAME,
-                "not running in an initrd environment, exiting...",
-            )
-        })?;
-
-    Ok(())
-}
 
 /// Perform initial work.
 ///
@@ -283,12 +265,12 @@ fn main() {
 ///   partition at `/system_root`.
 /// - Load required modules.
 /// - Walk the `sysfs` filesystem to attempt to find and mount the root
-///   partition at `/system_root`.
+///   partition at [`/system_root`][IGNITED_TARGET_ROOT_PATH].
 /// - Wait (optionally with a timeout) until the target root filesystem is
-///   mounted properly at `/system_root`.
+///   mounted properly at [`/system_root`][IGNITED_TARGET_ROOT_PATH].
 /// - Switch to the target root filesystem.
-/// - Transition to the target's init executable at [INIT_DEFAULT_PATH]
-///   (usually `/sbin/init`).
+/// - Transition to the target's init executable (usually at
+///   [`/sbin/init`][INIT_DEFAULT_PATH]).
 fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<String>> {
     #[inline(always)]
     fn calculate_evloop_timeout(
@@ -415,11 +397,64 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
     sysfs.stop(kcon);
 
     mod_loaded.wait();
+    let _ = aliases;  // TODO remove
 
-    // TODO: chroot & pivot, cleanup, timer, ...
-    let _ = aliases;
+    exec_target_init(kcon, timer, &args)
+}
 
-    execv(args.init(), &[args.init()])
+/// Here is where ignited ends.
+///
+/// - Switch to the target root filesystem.
+///     - Move mountpoints to host.
+///     - Change current directory to [`/system_root`][IGNITED_TARGET_ROOT_PATH].
+///     - Mount `.` (current directory) as `/`.
+///     - `chroot` to `.` (current directory).
+///     - Change current directory to `.`.
+/// - If target `init` is systemd-compatible, create the `systemd-state` memfd.
+/// - Transition to the target's init executable (usually at
+///   [`/sbin/init`][INIT_DEFAULT_PATH]).
+fn exec_target_init(kcon: &mut KConsole, timer: InitramfsTimer, args: &CmdlineArgs) -> Result<(), ExitError<String>> {
+    // comment from booster:
+    // https://github.com/mirror/busybox/blob/9aa751b08ab03d6396f86c3df77937a19687981b/util-linux/switch_root.c#L297
+    Mount::move_mount(kcon, &["/run", "/dev", "/proc", "/sys"]).bail(50)?;
+
+    delete_ramfs().bail(51)?;
+    chdir(IGNITED_TARGET_ROOT_PATH).printable(
+        PROGRAM_NAME,
+        format!("unable to chdir to {}", IGNITED_TARGET_ROOT_PATH),
+    )
+    .bail(52)?;
+    Mount::move_mount_currdir().bail(53)?;
+    chroot(".")
+        .printable(PROGRAM_NAME, "unable to chroot to target")
+        .bail(54)?;
+    chdir(".")
+        .printable(PROGRAM_NAME, "unable to chdir to target")
+        .bail(55)?;
+
+    let init_path = args.init();
+    let init_args: Vec<&CStr>;
+    let memfd_as_cstring: CString;
+    if is_systemd_compatible(init_path) {
+        let mut memfd = get_systemd_state().bail(100)?;
+        timer.write(&mut memfd).bail(100)?;
+        let memfd = memfd.into_raw_fd();
+
+        memfd_as_cstring = CString::new(memfd.to_string()).unwrap();
+        init_args = vec![
+            init_path,
+            cstr!("--switched-root"),
+            cstr!("--system"),
+            cstr!("--deserialize"),
+            memfd_as_cstring.as_c_str(),
+        ];
+    } else {
+        init_args = vec![init_path];
+    }
+
+    // Switching to target OS
+    kinfo!(kcon, "Switching to target. ¡Adiós!");
+    execv(init_path, &init_args)
         .printable(PROGRAM_NAME, INIT_ERROR)
         .bail(101)?;
 
