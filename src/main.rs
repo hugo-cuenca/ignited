@@ -330,7 +330,7 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
         kdebug!(kcon, "booted in bios/legacy mode");
     }
 
-    let mod_loading = ModLoading::new(&config, &args);
+    let mod_loading = ModLoading::new(&config, &args, aliases);
 
     let mut evloop = Poll::new()
         .map_err(|io| {
@@ -353,12 +353,12 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
             .bail(9)?,
     );
 
-    let udev = UdevListener::listen(&main_waker).bail(10)?;
+    let udev = UdevListener::listen(&main_waker, &mod_loading).bail(10)?;
     let mod_loaded = mod_loading
         .load_modules(config.sysconf().get_force_modules())
         .bail(11)?;
     setup_vconsole(kcon, &config).bail(12)?;
-    let sysfs = SysfsWalker::walk(&main_waker).bail(13)?;
+    let sysfs = SysfsWalker::walk(&main_waker, &mod_loading).bail(13)?;
 
     let start = Instant::now();
     let mut now = start; // Instant is Copy

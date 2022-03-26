@@ -5,10 +5,11 @@
 //! special `/vendor` partition.
 
 use crate::{
-    early_logging::KConsole, CmdlineArgs, InitramfsMetadata, RuntimeConfig, IGNITED_KERN_MODULES,
+    early_logging::KConsole, CmdlineArgs, RuntimeConfig, IGNITED_KERN_MODULES,
     PROGRAM_NAME,
 };
 use crossbeam_utils::sync::WaitGroup;
+use dashmap::DashSet;
 use nix::kmod::{finit_module, ModuleInitFlags};
 use precisej_printable_errno::{printable_error, ErrnoResult, PrintableErrno};
 use std::{
@@ -16,8 +17,8 @@ use std::{
     ffi::CString,
     fs::File,
     ops::DerefMut,
-    sync::{Arc, Mutex, MutexGuard},
-    thread::{self, JoinHandle},
+    sync::{Arc, Mutex},
+    thread,
 };
 
 /// (Kernel) Module alias.
@@ -38,6 +39,15 @@ impl ModAlias {
     pub fn new(pattern: String, module: String) -> Self {
         Self { pattern, module }
     }
+
+    /// Match a given alias with the pattern, returning the associated kernel module
+    /// if successful.
+    pub fn match_alias<'a, S: AsRef<str>>(&'a self, alias: S) -> Result<&'a str, ()> {
+        self._match_alias(alias.as_ref())
+    }
+    fn _match_alias<'a>(&self, alias: &str) -> Result<&'a str, ()> {
+        todo!("_match_alias(\"{}\")", alias)
+    }
 }
 
 /// List of (kernel) module aliases.
@@ -51,11 +61,35 @@ impl ModAlias {
 /// PATTERN MODULE
 /// ...
 /// ```
-#[derive(Debug, Default, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct ModAliases(Vec<ModAlias>);
-impl Extend<ModAlias> for ModAliases {
-    fn extend<T: IntoIterator<Item = ModAlias>>(&mut self, iter: T) {
-        self.0.extend(iter);
+#[derive(Debug, Default, Clone)]
+pub struct ModAliases {
+    bookkeeping_processed: Arc<DashSet<String>>,
+    aliases: Arc<Vec<ModAlias>>,
+}
+impl ModAliases {
+    /// Match the modules that correspond with the given alias
+    pub fn match_alias<S: Into<String>>(
+        &self,
+        alias: S,
+        modules: &mut Vec<String>,
+    ) -> Result<(), PrintableErrno<String>> {
+        self._match_alias(alias.into(), modules)
+    }
+    fn _match_alias(
+        &self,
+        alias: String,
+        modules: &mut Vec<String>,
+    ) -> Result<(), PrintableErrno<String>> {
+        if self.bookkeeping_processed.insert(alias.clone()) {
+            // Hasn't been processed yet
+            for available_alias in self.aliases.as_ref() {
+                if let Ok(module) = available_alias.match_alias(&alias) {
+                    modules.push(module.to_string())
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 impl TryFrom<std::fs::File> for ModAliases {
@@ -83,7 +117,10 @@ impl TryFrom<std::fs::File> for ModAliases {
             result.push(ModAlias::new(pattern.to_string(), module.to_string()))
         }
 
-        Ok(ModAliases(result))
+        Ok(ModAliases {
+            bookkeeping_processed: Arc::new(DashSet::new()),
+            aliases: Arc::new(result),
+        })
     }
 }
 impl TryFrom<&std::path::Path> for ModAliases {
@@ -108,6 +145,12 @@ impl ModParams {
     pub fn get_params<M: AsRef<str>>(&self, module: M) -> &[String] {
         self._get_params(module.as_ref())
     }
+    fn _get_params(&self, module: &str) -> &[String] {
+        self.0
+            .get(&Self::normalize_module(module))
+            .map(|a| &a[..])
+            .unwrap_or_default()
+    }
 
     /// Insert a new parameter to be passed to the module when initialized.
     #[inline]
@@ -119,6 +162,12 @@ impl ModParams {
     ) {
         self._insert(module.as_ref(), param.as_ref(), args.as_ref())
     }
+    fn _insert(&mut self, module: &str, param: &str, args: &str) {
+        self.0
+            .entry(Self::normalize_module(module))
+            .or_default()
+            .push(format!("{}={}", param, args));
+    }
 
     /// Normalize module name.
     ///
@@ -127,20 +176,6 @@ impl ModParams {
     /// in the string to underscores.
     pub fn normalize_module(module: &str) -> String {
         module.replace('-', "_")
-    }
-
-    fn _get_params(&self, module: &str) -> &[String] {
-        self.0
-            .get(&Self::normalize_module(module))
-            .map(|a| &a[..])
-            .unwrap_or_default()
-    }
-
-    fn _insert(&mut self, module: &str, param: &str, args: &str) {
-        self.0
-            .entry(Self::normalize_module(module))
-            .or_default()
-            .push(format!("{}={}", param, args));
     }
 }
 
@@ -166,14 +201,34 @@ pub struct ModLoading {
     bookkeeping: Arc<Mutex<ModLoadingInner>>,
     config: Arc<RuntimeConfig>,
     args: Arc<CmdlineArgs>,
+    aliases: ModAliases,
 }
 impl ModLoading {
     /// Build a new instance of this struct. This should only be called once.
-    pub fn new(config: &Arc<RuntimeConfig>, args: &Arc<CmdlineArgs>) -> Self {
+    pub fn new(config: &Arc<RuntimeConfig>, args: &Arc<CmdlineArgs>, aliases: ModAliases) -> Self {
         Self {
             bookkeeping: Arc::new(Mutex::new(ModLoadingInner::default())),
             config: Arc::clone(config),
             args: Arc::clone(args),
+            aliases,
+        }
+    }
+
+    /// Load the (kernel) module that corresponds to the given alias.
+    #[inline]
+    pub fn load_modalias<S: AsRef<str>>(
+        &self,
+        alias: S
+    ) -> Result<Option<ModWg>, PrintableErrno<String>> {
+        self._load_modalias(alias.as_ref())
+    }
+    fn _load_modalias(&self, alias: &str) -> Result<Option<ModWg>, PrintableErrno<String>> {
+        let mut modules: Vec<String> = Vec::new();
+        self.aliases.match_alias(alias, &mut modules)?;
+        if !modules.is_empty() {
+            self.load_modules(&modules).map(Some)
+        } else {
+            Ok(None)
         }
     }
 

@@ -1,14 +1,15 @@
 //! Linux `sysfs` walker.
 
-use crate::{common::ThreadHandle, early_logging::KConsole, PROGRAM_NAME};
+use crate::{common::ThreadHandle, early_logging::KConsole, module::ModLoading, PROGRAM_NAME};
 use mio::Waker;
 use precisej_printable_errno::{printable_error, PrintableErrno};
 use std::{
     sync::{mpsc::channel, Arc},
-    thread::{self, JoinHandle},
+    thread,
 };
 
 mod modalias {
+    use crate::module::ModLoading;
     use mio::Waker;
     use precisej_printable_errno::PrintableErrno;
     use std::sync::{mpsc::Sender, Arc};
@@ -17,6 +18,7 @@ mod modalias {
     pub(super) fn spawn(
         main_waker: Arc<Waker>,
         tx_udev_waker: Sender<Result<Arc<Waker>, PrintableErrno<String>>>,
+        mod_loading: ModLoading,
     ) {
         todo!()
     }
@@ -43,11 +45,17 @@ pub struct SysfsWalker {
 }
 impl SysfsWalker {
     /// Construct the `sysfs`-walking threads which will notify when `/system_root` is mounted.
-    pub fn walk(main_waker: &Arc<Waker>) -> Result<Self, PrintableErrno<String>> {
+    pub fn walk(
+        main_waker: &Arc<Waker>,
+        mod_loading: &ModLoading,
+    ) -> Result<Self, PrintableErrno<String>> {
         let modaliases_t = {
             let main_waker_cl = Arc::clone(main_waker);
             let (tx_mod_waker, rx_mod_waker) = channel();
-            let mod_handle = thread::spawn(move || modalias::spawn(main_waker_cl, tx_mod_waker));
+            let mod_loading = mod_loading.clone();
+            let mod_handle = thread::spawn(move || {
+                modalias::spawn(main_waker_cl, tx_mod_waker, mod_loading)
+            });
             let mod_waker = rx_mod_waker.recv().map_err(|e| {
                 printable_error(
                     PROGRAM_NAME,

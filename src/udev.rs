@@ -1,6 +1,6 @@
 //! (Linux) device manager based on `uevent` netlink socket.
 
-use crate::{common::ThreadHandle, early_logging::KConsole, PROGRAM_NAME};
+use crate::{common::ThreadHandle, early_logging::KConsole, module::ModLoading, PROGRAM_NAME};
 use mio::{Token, Waker};
 use precisej_printable_errno::{printable_error, PrintableErrno};
 use std::{
@@ -16,7 +16,7 @@ const UDEV_THREAD_UEVENT_NL_TOKEN: Token = Token(21);
 
 mod listener {
     use super::{UDEV_THREAD_UEVENT_NL_TOKEN, UDEV_THREAD_WAKE_TOKEN};
-    use crate::{early_logging::KConsole, PROGRAM_NAME};
+    use crate::{early_logging::KConsole, module::ModLoading, PROGRAM_NAME};
     use kobject_uevent::{ActionType, UEvent};
     use mio::{Events, Interest, Poll, Waker};
     use netlink_sys::{protocols::NETLINK_KOBJECT_UEVENT, Socket, SocketAddr};
@@ -31,6 +31,7 @@ mod listener {
     pub(super) fn spawn(
         main_waker: Arc<Waker>,
         tx_udev_waker: Sender<Result<Arc<Waker>, PrintableErrno<String>>>,
+        mod_loading: ModLoading,
     ) {
         // KConsole has been successfully opened before, so this should never fail.
         let mut kcon = KConsole::new().unwrap();
@@ -113,7 +114,8 @@ mod listener {
 
                         // spawn thread for each uevent
                         let main_waker = Arc::clone(&main_waker);
-                        thread::spawn(move || handle_uevent(main_waker, uevent));
+                        let mod_loading = mod_loading.clone();
+                        thread::spawn(move || handle_uevent(main_waker, uevent, mod_loading));
                     }
                     UDEV_THREAD_WAKE_TOKEN => {
                         // root is already mounted, we can exit
@@ -128,30 +130,35 @@ mod listener {
         }
     }
 
-    fn handle_uevent(main_waker: Arc<Waker>, uevent: UEvent) {
+    fn handle_uevent(main_waker: Arc<Waker>, uevent: UEvent, mut mod_loading: ModLoading) {
         // KConsole has been successfully opened before, so this should never fail.
         let mut kcon = KConsole::new().unwrap();
 
         if let Some(modalias) = uevent.env.get("MODALIAS") {
-            handle_uevent_load_modalias(&mut kcon, modalias);
+            handle_uevent_load_modalias(&mut kcon, main_waker, modalias, &mut mod_loading);
         } else if uevent.subsystem == "block" {
-            handle_uevent_block_device(&mut kcon, uevent);
+            handle_uevent_block_device(&mut kcon, main_waker, uevent);
         } else if uevent.subsystem == "net" {
-            handle_uevent_network(&mut kcon, uevent);
+            handle_uevent_network(&mut kcon, main_waker, uevent);
         } else if uevent.subsystem == "hidraw" && uevent.action == ActionType::Add {
             todo!();
         }
     }
 
-    fn handle_uevent_load_modalias(kcon: &mut KConsole, modalias: &str) {
+    fn handle_uevent_load_modalias(
+        kcon: &mut KConsole,
+        main_waker: Arc<Waker>,
+        modalias: &str,
+        mod_loading: &mut ModLoading,
+    ) {
         todo!()
     }
 
-    fn handle_uevent_block_device(kcon: &mut KConsole, uevent: UEvent) {
+    fn handle_uevent_block_device(kcon: &mut KConsole, main_waker: Arc<Waker>, uevent: UEvent) {
         todo!()
     }
 
-    fn handle_uevent_network(kcon: &mut KConsole, uevent: UEvent) {
+    fn handle_uevent_network(kcon: &mut KConsole, main_waker: Arc<Waker>, uevent: UEvent) {
         todo!()
     }
 }
@@ -161,11 +168,17 @@ mod listener {
 pub struct UdevListener(ThreadHandle);
 impl UdevListener {
     /// Construct a new listener which will notify when `/system_root` is mounted.
-    pub fn listen(main_waker: &Arc<Waker>) -> Result<Self, PrintableErrno<String>> {
+    pub fn listen(
+        main_waker: &Arc<Waker>,
+        mod_loading: &ModLoading,
+    ) -> Result<Self, PrintableErrno<String>> {
         let main_waker = Arc::clone(main_waker);
         let (tx_udev_waker, rx_udev_waker) = channel();
+        let mod_loading = mod_loading.clone();
 
-        let handle = thread::spawn(move || listener::spawn(main_waker, tx_udev_waker));
+        let handle = thread::spawn(move || {
+            listener::spawn(main_waker, tx_udev_waker, mod_loading)
+        });
         let udev_waker = rx_udev_waker.recv().map_err(|e| {
             printable_error(
                 PROGRAM_NAME,

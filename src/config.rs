@@ -6,7 +6,7 @@ use crate::{
     mount::{PartitionSourceBuilder, RootOpts, RootOptsBuilder},
     INIT_DEFAULT_PATH, PROGRAM_NAME,
 };
-use precisej_printable_errno::{printable_error, PrintableErrno, PrintableResult};
+use precisej_printable_errno::{printable_error, PrintableErrno};
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
