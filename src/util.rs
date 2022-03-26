@@ -30,6 +30,7 @@ use std::{
 pub fn delete_ramfs() -> Result<(), PrintableErrno<String>> {
     // see statfs(2)
     const RAMFS_MAGIC: StatFsType = StatFsType(0x858458f6);
+    const TMPFS_MAGIC: StatFsType = StatFsType(0x01021994);
 
     fn is_dir(mode: mode_t) -> bool {
         mode & S_IFMT == S_IFDIR
@@ -126,7 +127,7 @@ pub fn delete_ramfs() -> Result<(), PrintableErrno<String>> {
         )?;
         let root_statfs_type = root_statfs.filesystem_type();
         if root_statfs_type != RAMFS_MAGIC
-            && root_statfs_type != StatFs::TMPFS_MAGIC {
+            && root_statfs_type != TMPFS_MAGIC {
             return Err(printable_error(
                 PROGRAM_NAME,
                 "/ should still be initramfs, but is not of type ramfs/tmpfs".to_string(),
