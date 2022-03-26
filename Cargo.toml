@@ -20,6 +20,7 @@ compiled-uuid = "0.1.2"
 crossbeam-utils = "0.8.7"
 cstr = "0.2.9"
 dashmap = "5.2.0"
+goglob = { path = "../goglob" }
 kobject-uevent = "0.1.0"
 mio = { version = "0.8.0", features = ["os-ext", "os-poll"] }
 netlink-sys = { path = "../netlink/netlink-sys", features = ["mio_socket"] }

@@ -10,6 +10,7 @@ use crate::{
 };
 use crossbeam_utils::sync::WaitGroup;
 use dashmap::DashSet;
+use goglob::match_glob;
 use nix::kmod::{finit_module, ModuleInitFlags};
 use precisej_printable_errno::{printable_error, ErrnoResult, PrintableErrno};
 use std::{
@@ -42,11 +43,17 @@ impl ModAlias {
 
     /// Match a given alias with the pattern, returning the associated kernel module
     /// if successful.
-    pub fn match_alias<'a, S: AsRef<str>>(&'a self, alias: S) -> Result<&'a str, ()> {
+    pub fn match_alias<S: AsRef<str>>(&self, alias: S) -> Result<String, ()> {
         self._match_alias(alias.as_ref())
     }
-    fn _match_alias<'a>(&self, alias: &str) -> Result<&'a str, ()> {
-        todo!("_match_alias(\"{}\")", alias)
+    fn _match_alias(&self, alias: &str) -> Result<String, ()> {
+        let module = self.module.clone();
+        (match_glob(
+            &CString::new::<&str>(self.pattern.as_ref()).map_err(drop)?,
+            &CString::new(alias).map_err(drop)?,
+        ))
+        .then(|| module)
+        .ok_or(())
     }
 }
 
@@ -84,7 +91,7 @@ impl ModAliases {
             // Hasn't been processed yet
             for available_alias in self.aliases.as_ref() {
                 if let Ok(module) = available_alias.match_alias(&alias) {
-                    modules.push(module.to_string())
+                    modules.push(module)
                 }
             }
         }
