@@ -397,7 +397,6 @@ fn init(kcon: &mut KConsole, timer: InitramfsTimer) -> Result<(), ExitError<Stri
     sysfs.stop(kcon);
 
     mod_loaded.wait();
-    let _ = aliases;  // TODO remove
 
     exec_target_init(kcon, timer, &args)
 }
