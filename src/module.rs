@@ -10,7 +10,7 @@ use crate::{
 };
 use crossbeam_utils::sync::WaitGroup;
 use dashmap::DashSet;
-use goglob::match_glob;
+use goglob::GlobPattern;
 use nix::kmod::{finit_module, ModuleInitFlags};
 use precisej_printable_errno::{printable_error, ErrnoResult, PrintableErrno};
 use std::{
@@ -27,9 +27,9 @@ use std::{
 /// Inside of `/sys/devices/*` there is a `modalias` file for every device with a
 /// loadable kernel module. `/usr/lib/modules/ignited.alias` should contain all alias
 /// patterns that correspond to a kernel module to be loaded from the initramfs.
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct ModAlias {
-    pattern: String,
+    pattern: GlobPattern,
     module: String,
 }
 impl ModAlias {
@@ -37,23 +37,17 @@ impl ModAlias {
     /// kernel module for a device wants to be loaded, the device's `modalias`
     /// should be matched with the `ModAlias`'s pattern first. On success, the
     /// kernel module should then be loaded.
-    pub fn new(pattern: String, module: String) -> Self {
+    pub fn new(pattern: GlobPattern, module: String) -> Self {
         Self { pattern, module }
     }
 
     /// Match a given alias with the pattern, returning the associated kernel module
     /// if successful.
-    pub fn match_alias<S: AsRef<str>>(&self, alias: S) -> Result<String, ()> {
+    pub fn match_alias<S: AsRef<str>>(&self, alias: S) -> Result<&str, ()> {
         self._match_alias(alias.as_ref())
     }
-    fn _match_alias(&self, alias: &str) -> Result<String, ()> {
-        let module = self.module.clone();
-        (match_glob(
-            &CString::new::<&str>(self.pattern.as_ref()).map_err(drop)?,
-            &CString::new(alias).map_err(drop)?,
-        ))
-        .then(|| module)
-        .ok_or(())
+    fn _match_alias<'a>(&'a self, alias: &'_ str) -> Result<&'a str, ()> {
+        self.pattern.matches(alias).then(|| &*self.module).ok_or(())
     }
 }
 
@@ -91,7 +85,7 @@ impl ModAliases {
             // Hasn't been processed yet
             for available_alias in self.aliases.as_ref() {
                 if let Ok(module) = available_alias.match_alias(&alias) {
-                    modules.push(module)
+                    modules.push(module.to_string())
                 }
             }
         }
@@ -121,7 +115,15 @@ impl TryFrom<std::fs::File> for ModAliases {
                     "error while reading module aliases: missing whitespace",
                 )
             })?;
-            result.push(ModAlias::new(pattern.to_string(), module.to_string()))
+            let pattern = GlobPattern::new(pattern).map_err(|e| {
+                printable_error(
+                    PROGRAM_NAME,
+                    format!(
+                        "error while reading module aliases: malformed pattern: {}", e
+                    ),
+                )
+            })?;
+            result.push(ModAlias::new(pattern, module.to_string()))
         }
 
         Ok(ModAliases {
