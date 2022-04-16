@@ -23,7 +23,7 @@ dashmap = "5.2.0"
 goglob = { version = "0.2.0", features = ["serde"] }
 kobject-uevent = "0.1.0"
 mio = { version = "0.8.2", features = ["os-ext", "os-poll"] }
-netlink-sys = { path = "../netlink/netlink-sys", features = ["mio_socket"] }
+netlink-sys-mio-0-8 = { version = "0.8.3", features = ["mio_socket"] }
 nix = "0.23.1"
 precisej-printable-errno = "0.2.2"
 serde = { version = "1.0.136", features = ["derive"] }

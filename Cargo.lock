@@ -120,7 +120,7 @@ dependencies = [
  "goglob",
  "kobject-uevent",
  "mio",
- "netlink-sys",
+ "netlink-sys-mio-0-8",
  "nix",
  "precisej-printable-errno",
  "serde",
@@ -201,8 +201,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "netlink-sys"
-version = "0.8.2"
+name = "netlink-sys-mio-0-8"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1ba920c0323e1c88501fdf198b2a8d5fd830f51dab7c0b73430eb54a8cc11cd"
 dependencies = [
  "bytes",
  "libc",
